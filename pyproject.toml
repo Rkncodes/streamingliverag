@@ -1,0 +1,23 @@
+[project]
+name = "streamingliverag"
+version = "0.1.0"
+description = "Document-intelligence RAG over institutional policy PDFs"
+requires-python = ">=3.11"
+dependencies = [
+    "pymupdf>=1.24",
+    "pydantic>=2.6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+# Dense retrieval evaluation (CPU). torch: install the CPU wheel from https://download.pytorch.org/whl/cpu
+retrieval = ["torch>=2.6", "sentence-transformers>=5", "numpy>=2", "psutil>=5.9", "einops>=0.8", "snowballstemmer>=2.2"]
+# Grounded generation (live LLM calls): credentials via GROQ_API_KEY
+generation = ["groq>=1.0", "python-dotenv>=1.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "corpus: tests that run against the real PDFs in corpus/ (skipped if corpus is absent)",
+]
