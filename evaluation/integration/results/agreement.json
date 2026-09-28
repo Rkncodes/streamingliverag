@@ -53,10 +53,10 @@
   "same_temporal": true,
   "same_rerank": true,
   "same_context": true,
-  "same_status": false,
-  "same_abstention_reason": false,
-  "same_citations": false,
-  "same_explicit_check": false,
+  "same_status": true,
+  "same_abstention_reason": true,
+  "same_citations": true,
+  "same_explicit_check": true,
   "identical_text": false
  },
  {
@@ -68,8 +68,8 @@
   "same_status": true,
   "same_abstention_reason": true,
   "same_citations": true,
-  "same_explicit_check": true,
-  "identical_text": true
+  "same_explicit_check": false,
+  "identical_text": false
  },
  {
   "id": "i-uc-neutral-card",
@@ -93,7 +93,7 @@
   "same_abstention_reason": true,
   "same_citations": true,
   "same_explicit_check": true,
-  "identical_text": true
+  "identical_text": false
  },
  {
   "id": "i-uc-march-tickets",
@@ -139,9 +139,9 @@
   "same_context": true,
   "same_status": true,
   "same_abstention_reason": true,
-  "same_citations": true,
+  "same_citations": false,
   "same_explicit_check": true,
-  "identical_text": true
+  "identical_text": false
  },
  {
   "id": "i-uc-spouse",
@@ -149,9 +149,9 @@
   "same_temporal": true,
   "same_rerank": true,
   "same_context": true,
-  "same_status": false,
-  "same_abstention_reason": false,
-  "same_citations": false,
+  "same_status": true,
+  "same_abstention_reason": true,
+  "same_citations": true,
   "same_explicit_check": true,
   "identical_text": false
  },
@@ -177,7 +177,7 @@
   "same_abstention_reason": true,
   "same_citations": true,
   "same_explicit_check": true,
-  "identical_text": false
+  "identical_text": true
  },
  {
   "id": "i-ru-advance",
@@ -189,7 +189,7 @@
   "same_abstention_reason": true,
   "same_citations": true,
   "same_explicit_check": true,
-  "identical_text": false
+  "identical_text": true
  },
  {
   "id": "i-or-180k",
@@ -224,8 +224,8 @@
   "same_status": true,
   "same_abstention_reason": true,
   "same_citations": true,
-  "same_explicit_check": true,
-  "identical_text": true
+  "same_explicit_check": false,
+  "identical_text": false
  },
  {
   "id": "i-ut-clause",
@@ -237,7 +237,7 @@
   "same_abstention_reason": true,
   "same_citations": true,
   "same_explicit_check": true,
-  "identical_text": true
+  "identical_text": false
  },
  {
   "id": "i-mi-mileage",
@@ -245,11 +245,11 @@
   "same_temporal": true,
   "same_rerank": true,
   "same_context": true,
-  "same_status": false,
-  "same_abstention_reason": false,
-  "same_citations": false,
+  "same_status": true,
+  "same_abstention_reason": true,
+  "same_citations": true,
   "same_explicit_check": true,
-  "identical_text": false
+  "identical_text": true
  },
  {
   "id": "i-ro-highrisk",
@@ -257,11 +257,11 @@
   "same_temporal": true,
   "same_rerank": true,
   "same_context": true,
-  "same_status": false,
-  "same_abstention_reason": false,
-  "same_citations": false,
+  "same_status": true,
+  "same_abstention_reason": true,
+  "same_citations": true,
   "same_explicit_check": true,
-  "identical_text": false
+  "identical_text": true
  },
  {
   "id": "i-ya-internet",
