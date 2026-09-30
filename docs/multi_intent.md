@@ -140,7 +140,20 @@ Offline result (`evaluation/multi_intent/results/offline.md`):
 * The 27 integration questions: 2 decompose (`i-uc-jul-submit`, `i-uc-personal-leg`), all 27 delegate, and all 27 give
   model input identical to phase 1.
 
-Answer quality needs a live run (not done yet; there is no live runner yet).
+`python -m evaluation.multi_intent.live --run N` runs the same 16 cases with the configured LLM (Groq): phase 2, plus
+phase 1 as a separate comparison only when phase 2 did not delegate (a delegated answer is phase 1's own). It saves
+`results/live-run-N.json` after every case, resumes after a provider error, and `--summarize` rewrites
+`results/live-summary.md` without LLM calls. Its checks are automatic, not a verdict on correctness.
+
+Live run 1 (`evaluation/multi_intent/results/live-summary.md`): 16/16 cases done, 14/16 pass the automatic checks, 28
+LLM calls, ~87k tokens, 0 provider errors. The two failed checks were reviewed; neither is a phase 2 defect:
+
+* `mi-or-emergency` (delegate): both gold chunks were in the context and the coverage gate was right; the model
+  quoted the emergency clause with an unmarked elision, the verifier rejected it, and the whole answer abstained.
+  Generation/model behaviour.
+* `mi-uc-mixed-temporal` (per_intent, February and July versions selected correctly): the answer is grounded and
+  verified; "personal credit card" is in the claim's verbatim quote, but the check searches only the claim text.
+  Evaluation-check limitation.
 
 ## Frozen boundary
 
