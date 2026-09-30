@@ -18,6 +18,8 @@ generation = ["groq>=1.0", "python-dotenv>=1.0"]
 jobs = ["pika>=1.3"]
 # Persistent session state in Redis (adaptive/session_store/redis_store.py only); REDIS_URL, e.g. redis://localhost:6379/0
 sessions = ["redis>=5"]
+# The phase 7 services (services/): HTTP interfaces and service-to-service calls; see docs/services.md
+services = ["fastapi>=0.110", "uvicorn>=0.29", "httpx>=0.27"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

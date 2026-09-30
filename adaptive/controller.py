@@ -101,8 +101,11 @@ def _from_grounded(a: GroundedAnswer, decision: Decision) -> AdaptiveAnswer:
 
 
 class AdaptiveController:
-    def __init__(self, stack: RetrievalStack, provider: LLMProvider):
+    def __init__(self, stack: RetrievalStack, provider: LLMProvider, answerer=None):
         self.stack, self.provider = stack, provider
+        # answerer: None = the frozen GroundedAnswerer(provider); phase 7 passes a drop-in with the same
+        # answer(question, evidence, question_versions=...) method (the generation service's client)
+        self.answerer = answerer
 
     def run(self, query: str) -> AdaptiveAnswer:
         return self.answer(retrieve(self.stack, query))
@@ -133,7 +136,8 @@ class AdaptiveController:
 
     def answer(self, r: Retrieval) -> AdaptiveAnswer:
         series, signals = self.eligibility(r)
-        single = answer_retrieval(self.provider, r)  # the frozen path
+        single = (answer_retrieval(self.provider, r) if self.answerer is None  # the frozen path
+                  else self.answerer.answer(r.query, r.evidence, question_versions=r.question_versions))
         version_problems = [p for p in single.verification_problems
                             if any(m in p for m in VERSION_ATTRIBUTION_PROBLEMS)]
         signals["single_status"] = single.status
@@ -165,7 +169,7 @@ class AdaptiveController:
 
     def _split(self, r: Retrieval, series: str, decision: Decision, single: GroundedAnswer) -> AdaptiveAnswer:
         docs = list(decision.signals["versions_in_context"][series])  # ordered by effective date
-        answerer = GroundedAnswerer(self.provider)
+        answerer = GroundedAnswerer(self.provider) if self.answerer is None else self.answerer
         parts = []
         for doc in docs:
             evidence = evidence_for_version(r.evidence, series, doc)

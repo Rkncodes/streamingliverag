@@ -27,9 +27,10 @@ from .state import UNRESOLVED, Session, Turn
 
 class SessionController:
     def __init__(self, stack: RetrievalStack, provider: LLMProvider, aliases: dict[str, str] | None = None,
-                 retriever=None):
+                 retriever=None, answerer=None):
         # retriever: None = the frozen retrieval; phase 6 passes its iterative retriever (current turn only)
-        self.multi = MultiIntentController(stack, provider, aliases, retriever)
+        # answerer: None = the frozen GroundedAnswerer; phase 7 passes the generation service's client
+        self.multi = MultiIntentController(stack, provider, aliases, retriever, answerer)
 
     def ask(self, session: Session, question: str) -> Turn:
         last = session.last

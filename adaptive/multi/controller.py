@@ -89,11 +89,11 @@ class MultiIntentAnswer:
 
 class MultiIntentController:
     def __init__(self, stack: RetrievalStack, provider: LLMProvider, aliases: dict[str, str] | None = None,
-                 retriever=None):
+                 retriever=None, answerer=None):
         self.stack, self.provider = stack, provider
         # every retrieval this controller makes; default the frozen generation.pipeline.retrieve (phase 6: a drop-in)
         self.retrieve = retrieve if retriever is None else retriever
-        self.phase1 = AdaptiveController(stack, provider)
+        self.phase1 = AdaptiveController(stack, provider, answerer)  # answerer: phase 7 (default: the frozen one)
         self.aliases = load_aliases() if aliases is None else aliases
         self.organizations = {c.organization for c in stack.chunks if c.organization}
 
