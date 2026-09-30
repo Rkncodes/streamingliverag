@@ -88,8 +88,11 @@ class MultiIntentAnswer:
 
 
 class MultiIntentController:
-    def __init__(self, stack: RetrievalStack, provider: LLMProvider, aliases: dict[str, str] | None = None):
+    def __init__(self, stack: RetrievalStack, provider: LLMProvider, aliases: dict[str, str] | None = None,
+                 retriever=None):
         self.stack, self.provider = stack, provider
+        # every retrieval this controller makes; default the frozen generation.pipeline.retrieve (phase 6: a drop-in)
+        self.retrieve = retrieve if retriever is None else retriever
         self.phase1 = AdaptiveController(stack, provider)
         self.aliases = load_aliases() if aliases is None else aliases
         self.organizations = {c.organization for c in stack.chunks if c.organization}
@@ -99,12 +102,12 @@ class MultiIntentController:
 
     def run(self, query: str) -> MultiIntentAnswer:
         d = self.decompose(query)
-        r0 = retrieve(self.stack, query)
+        r0 = self.retrieve(self.stack, query)
         if not d.multi:
             runs = [IntentRetrieval(d.intents[0], r0)]
             return self._from_phase1(d, DELEGATE, f"single intent ({d.reason}): phase 1 unchanged",
                                      self.phase1.answer(r0), runs, r0)
-        runs = [retrieve_intent(self.stack, i) for i in d.intents]
+        runs = [retrieve_intent(self.stack, i, self.retrieve) for i in d.intents]
         ctx0 = assemble(r0.evidence)  # the context phase 1 assembles for the whole question
         uncovered = [x.intent.index for x in runs if x.admissible and not covered(x, ctx0)]
         # organization boundary: the whole question's context may hold chunks retrieved only because of a clause about

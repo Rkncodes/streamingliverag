@@ -58,8 +58,9 @@ class Fusion:
     intents_of: dict[str, list[dict]] = field(default_factory=dict)  # chunk_id -> [{"intent", "rank"}]
 
 
-def retrieve_intent(stack: RetrievalStack, intent: Intent) -> IntentRetrieval:
-    return IntentRetrieval(intent, retrieve(stack, intent.sub_query))
+def retrieve_intent(stack: RetrievalStack, intent: Intent, retriever=retrieve) -> IntentRetrieval:
+    """`retriever`: generation.pipeline.retrieve, or a drop-in with its signature (phase 6 iterative retrieval)."""
+    return IntentRetrieval(intent, retriever(stack, intent.sub_query))
 
 
 def covered(run: IntentRetrieval, ctx: Context) -> bool:
