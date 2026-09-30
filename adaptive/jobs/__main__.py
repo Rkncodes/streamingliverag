@@ -6,6 +6,7 @@ demo    the whole flow in one process over the in-memory broker (no RabbitMQ): e
         the worker consumes it and runs the phase 3 session controller, the client applies the job events.
         --offline answers with a stub model ("insufficient_evidence"; no network, no tokens).
 worker  a worker on RabbitMQ (RABBITMQ_URL or --url; needs the "jobs" extra: pika). Runs until interrupted.
+        Sessions are kept in Redis when REDIS_URL is set ("sessions" extra: redis), else in the worker's memory.
 submit  a client on RabbitMQ: submits the questions in order to one session and waits for each result.
 Single-quote the questions in PowerShell and bash ("$180,000" in double quotes reaches Python as ",000").
 """
@@ -79,9 +80,14 @@ def worker(args) -> int:
     from .rabbitmq import RabbitMQBroker
     from .worker import Worker
 
+    sessions, where = None, "in memory (lost when the worker stops)"
+    if os.environ.get("REDIS_URL"):  # phase 5: sessions survive worker restarts
+        from adaptive.session_store.redis_store import RedisSessionStore
+
+        sessions, where = RedisSessionStore.from_env(), "in Redis (REDIS_URL)"
     broker = RabbitMQBroker(args.url)
-    w = Worker(_controller(args), broker)
-    print(f"worker consuming {w.jobs_queue} (Ctrl+C to stop)", flush=True)
+    w = Worker(_controller(args), broker, sessions=sessions)
+    print(f"worker consuming {w.jobs_queue}; sessions {where} (Ctrl+C to stop)", flush=True)
     try:
         w.run()
     except KeyboardInterrupt:

@@ -16,6 +16,8 @@ retrieval = ["torch>=2.6", "sentence-transformers>=5", "numpy>=2", "psutil>=5.9"
 generation = ["groq>=1.0", "python-dotenv>=1.0"]
 # Asynchronous job workflow over RabbitMQ (adaptive/jobs/rabbitmq.py only); the in-memory broker needs nothing
 jobs = ["pika>=1.3"]
+# Persistent session state in Redis (adaptive/session_store/redis_store.py only); REDIS_URL, e.g. redis://localhost:6379/0
+sessions = ["redis>=5"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
