@@ -15,10 +15,10 @@ services.mcp.server  ── tools/list, tools/call (schemas = services/mcp/contr
   │                      = frozen generation.pipeline.retrieve, or the phase 6 loop (mode=iterative)
   ├─ metadata_lookup ──► MetadataCatalog: data/ingested/_manifest.json, data/chunks, organization_aliases.toml,
   │                      temporal.versions.VersionRegistry
-  └─ database_query  ──► DatabaseAdapter (contract only; NotConfigured in phase 8)
+  └─ database_query  ──► DatabaseAdapter: NotConfigured, or PostgreSQL with DATABASE_URL (phase 9, docs/database.md)
 ```
 
-Not implemented: PostgreSQL (database_query has no adapter), OpenTelemetry, React, MCP resources and prompts,
+Not implemented: OpenTelemetry, React, MCP resources and prompts,
 authentication.
 
 ## Tools
@@ -31,7 +31,7 @@ carries `schema_version` and `correlation`.
 |---|---|---|
 | `document_search` | `query` (required, ≤4000); `limit` 1-20 (5); `mode` `single` \| `iterative`; `max_rounds` 1-10 (3); filters `organization` (full name or short name), `doc_id`, `current_only`, `as_of` (ISO date; not with `current_only`) | `results[]`: `rank`, `chunk_id`, `document` (doc_id, title, **filename**, organization, domain, type, authority, version, effective / superseded date, is_current, series_id, source_url, page_count), `location` (pages, section path, clause, source blocks), `score` (retrieval rank, value, retriever, rerank score), verbatim `text`, `content_hash`, `as_of_applicability` (with `as_of` only); `temporal` (the frozen resolver's reading of the query text, see below: kind, trigger, dates, selected versions, dropped); `candidates`, `filtered_out`, `filters`, `backend`, `rounds`, `notes` |
 | `metadata_lookup` | `chunk_id` (one chunk and its document), or filters `doc_id`, `organization`, `series_id`, `domain`, `document_type`, `current_only`; `include_provenance`, `include_text` | `documents[]` (manifest + chunk metadata: filename, status, title, organization, dates normalized and as printed, is_current, series and its versions, source, page count, file hash, chunk / excluded counts, missing metadata, per-field provenance); `chunk`; `corpus` (counts, organizations, pipeline versions); `notes` |
-| `database_query` | `query_name` `documents` \| `document_versions` \| `chunks_by_document`; `parameters` (checked per query); `limit` 1-500. Never SQL text | `columns`, `rows`, `row_count`, `truncated`, `source`. **Phase 8: always the error `database_not_configured`** |
+| `database_query` | `query_name` `documents` \| `document_versions` \| `chunks_by_document`; `parameters` (checked per query); `limit` 1-500. Never SQL text | `columns`, `rows`, `row_count`, `truncated`, `source`. Without `DATABASE_URL`: the error `database_not_configured`; with it, PostgreSQL (phase 9, [database.md](database.md)) |
 
 **document_search filters** select among the chunks the retrieval returned and keep its order (`retrieval_rank`).
 The tool always asks for the whole reranked pool (k = 20 = `CANDIDATE_POOL`), filters it, and returns the first
@@ -75,7 +75,8 @@ correlation}}` (the same JSON is in the text content):
 | `unknown_organization`, `unknown_document` | a filter names something not in the corpus; `details` lists the valid values |
 | `not_found` | `chunk_id` is not a retrievable chunk |
 | `backend_unavailable` | the retrieval service failed (transport, HTTP status, invalid response, mismatched correlation ids) |
-| `database_not_configured` | database_query in phase 8 |
+| `database_not_configured` | database_query without `DATABASE_URL` |
+| `database_unavailable` | database_query: the configured PostgreSQL cannot answer (unreachable, not migrated, nothing loaded, statement failed; phase 9) |
 | `internal_error` | anything else; the exception stays in the server log |
 
 An unknown tool name is a JSON-RPC protocol error `-32602 Unknown tool: <name>` (data: the tool names).
@@ -136,4 +137,4 @@ $r.structured_content.temporal      # neutral: the query text has no date; as_of
   carry the retrieval service's own chunk copies, and only `filename` / `page_count` come from the local manifest.
 * No authentication. Streamable HTTP binds to 127.0.0.1 with the SDK's DNS-rebinding protection. A tool call runs
   in a worker thread, and the local backend has no concurrency limit.
-* `database_query` returns no data until a database adapter exists.
+* `database_query` returns data only with PostgreSQL configured and loaded (phase 9, docs/database.md).

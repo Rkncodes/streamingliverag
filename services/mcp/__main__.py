@@ -8,6 +8,8 @@
 
 Environment: MCP_HOST, MCP_PORT, MCP_RETRIEVAL, RETRIEVAL_URL, SERVICE_TIMEOUT_S (services/config.py). Needs the
 "mcp" and "services" extras (and "retrieval" for --retrieval local).
+database_query: PostgreSQL when DATABASE_URL is set (phase 9, services/persistence; DATABASE_SCHEMA and the timeouts
+in services/persistence/config.py; needs the "postgres" extra), otherwise NotConfigured (database_not_configured).
 """
 
 from __future__ import annotations
@@ -33,7 +35,19 @@ def build_tools(retrieval: str, retrieval_url: str, timeout_s: float):
         import httpx
 
         search = RemoteSearch(httpx.Client(base_url=retrieval_url, timeout=timeout_s))
-    return Tools(catalog, search)
+    return Tools(catalog, search, build_database())
+
+
+def build_database():
+    """The PostgreSQL adapter when DATABASE_URL is set, else None (Tools then uses NotConfigured)."""
+    from ..persistence.config import DatabaseSettings
+
+    settings = DatabaseSettings.from_env()
+    if settings is None:
+        return None
+    from .postgres import PostgresDatabase
+
+    return PostgresDatabase(settings)
 
 
 def main(argv=None) -> int:

@@ -242,6 +242,9 @@ QUERIES: dict[str, dict[str, bool]] = {  # named query -> parameter -> required
     "document_versions": {"series_id": True},
     "chunks_by_document": {"doc_id": True},
 }
+PARAMETER_TYPES: dict[str, type] = {  # parameter -> the type its value must have (None = absent filter)
+    "organization": str, "domain": str, "document_type": str, "is_current": bool, "series_id": str, "doc_id": str,
+}
 
 
 class DatabaseQueryInput(_Input):
@@ -260,6 +263,11 @@ class DatabaseQueryInput(_Input):
             raise ValueError(f"unknown parameters for {self.query_name}: {unknown}; allowed: {sorted(spec)}")
         if missing:
             raise ValueError(f"missing parameters for {self.query_name}: {missing}")
+        mistyped = sorted(p for p, v in self.parameters.items()
+                          if v is not None and type(v) is not PARAMETER_TYPES[p])
+        if mistyped:
+            raise ValueError("parameters of the wrong type: " + ", ".join(
+                f"{p} must be {PARAMETER_TYPES[p].__name__}" for p in mistyped))
         return self
 
 
@@ -279,7 +287,8 @@ class DatabaseQueryOutput(_Model):
 
 class ToolErrorDetail(_Model):
     code: Literal["invalid_arguments", "unknown_organization", "unknown_document", "not_found",
-                  "database_not_configured", "backend_unavailable", "internal_error"]
+                  "database_not_configured", "database_unavailable", "backend_unavailable",
+                  "internal_error"]
     message: str
     details: list[dict[str, Any]] = []
     correlation: Correlation | None = None

@@ -7,7 +7,7 @@
                     widen the search or re-rank. as_of is a metadata filter (MetadataCatalog.applicability), not
                     the frozen temporal resolution of the query text that `temporal` reports.
   metadata_lookup   the repository metadata (MetadataCatalog): documents, filters, one chunk.
-  database_query    the DatabaseAdapter contract; no database in phase 8 (NotConfigured).
+  database_query    the DatabaseAdapter contract: NotConfigured, or PostgreSQL (phase 9, services/persistence).
 
 Failures the caller can act on raise ToolFailure (unknown organization / document / chunk, no database); the server
 turns them into isError results. An empty result is a result, not a failure.
@@ -129,4 +129,4 @@ class Tools:
         try:
             return self.database.execute(inp, corr)
         except DatabaseUnavailable as e:
-            raise ToolFailure("database_not_configured", str(e), [{"adapter": self.database.name}]) from e
+            raise ToolFailure(e.code, str(e), [{"adapter": self.database.name}]) from e

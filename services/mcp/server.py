@@ -68,7 +68,8 @@ SPECS = {s.name: s for s in [
              MetadataLookupInput, MetadataLookupOutput),
     ToolSpec("database_query", "Query the metadata database",
              "Named, parameterized metadata queries (documents, document_versions, chunks_by_document). No SQL text "
-             "is accepted. No database is configured in this deployment: calls fail with database_not_configured.",
+             "is accepted. Served by PostgreSQL when the server has DATABASE_URL; otherwise calls fail with "
+             "database_not_configured.",
              DatabaseQueryInput, DatabaseQueryOutput),
 ]}
 
