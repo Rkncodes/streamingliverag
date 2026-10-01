@@ -20,6 +20,8 @@ jobs = ["pika>=1.3"]
 sessions = ["redis>=5"]
 # The phase 7 services (services/): HTTP interfaces and service-to-service calls; see docs/services.md
 services = ["fastapi>=0.110", "uvicorn>=0.29", "httpx>=0.27"]
+# The phase 8 MCP tool layer (services/mcp/): the official Model Context Protocol SDK; see docs/mcp.md
+mcp = ["mcp>=2.2,<3"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

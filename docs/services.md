@@ -24,7 +24,7 @@ api (FastAPI, :8000)                                            └────�
 QueryResponse  (turn read from the session store)
 ```
 
-Not implemented (later phases): MCP, PostgreSQL, OpenTelemetry, a React frontend. There is no ChromaDB in this
+Not implemented (later phases): PostgreSQL, OpenTelemetry, a React frontend. MCP: phase 8, docs/mcp.md. There is no ChromaDB in this
 repository: dense retrieval is the project's own arctic-m index (retrieval/dense.py) with BM25 and RRF, unchanged.
 
 ## Services
