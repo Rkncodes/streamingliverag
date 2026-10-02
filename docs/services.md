@@ -24,8 +24,9 @@ api (FastAPI, :8000)                                            └────�
 QueryResponse  (turn read from the session store)
 ```
 
-Not implemented (later phases): OpenTelemetry, a React frontend. MCP: phase 8, docs/mcp.md. PostgreSQL (for the MCP
-database_query tool): phase 9, docs/database.md. There is no ChromaDB in this
+Not implemented (later phases): a React frontend, durable job state. MCP: phase 8, docs/mcp.md. PostgreSQL (for the
+MCP database_query tool): phase 9, docs/database.md. OpenTelemetry tracing: phase 10A, see Tracing below and
+docs/telemetry.md. There is no ChromaDB in this
 repository: dense retrieval is the project's own arctic-m index (retrieval/dense.py) with BM25 and RRF, unchanged.
 
 ## Services
@@ -39,7 +40,7 @@ repository: dense retrieval is the project's own arctic-m index (retrieval/dense
 
 Shared: `services/contracts.py` (contracts), `services/http.py` (service calls), `services/correlation.py`
 (correlation ids), `services/config.py` (settings), `services/inprocess.py` (all four in one process, for the offline
-evaluation and development without infrastructure).
+evaluation and development without infrastructure), `services/telemetry/` (tracing, phase 10A).
 
 Reused unchanged: the phase 4 job contracts, broker (`RabbitMQBroker`), client and worker (the orchestrator is a
 `Worker` subclass that only binds correlation ids); the phase 5 `RedisSessionStore` and its codec; phases 1 to 6.
@@ -93,8 +94,48 @@ reads them.
 | `RETRIEVAL_MODE`, `MAX_ROUNDS` | orchestrator | `single`, `3` |
 | `GENERATION_PROVIDER` | generation | `groq` (`GROQ_API_KEY`); `offline` = stub model, always abstains, no tokens |
 | `QUERY_TIMEOUT_S`, `SERVICE_TIMEOUT_S` | api, orchestrator | `180`, `120` |
+| `OTEL_TRACES_EXPORTER`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_SDK_DISABLED` | every service | tracing off (`services/telemetry/config.py`) |
 
 No credentials in code; a missing required variable stops the service at start with its name.
+
+## Tracing (phase 10A)
+
+OpenTelemetry tracing is implemented around the service boundaries (`services/telemetry/`; full description in
+[telemetry.md](telemetry.md)). It only observes: responses, jobs, sessions and model input are identical with
+tracing off, on, or broken (tested).
+
+```
+POST /query                          api          (server span: method, route template, status)
+└── orchestrator.execute             one job: job status, turn index, resolution, answer status
+    ├── POST /retrieve               retrieval service
+    │   └── retrieval.execute        mode, k, evidence count, temporal kind, rounds, stop reason
+    │       └── retrieval.round ...  one per round of the phase 6 loop (RETRIEVAL_MODE=iterative)
+    └── POST /generate               generation service
+        └── generation.execute       provider, model, evidence count, status, abstention reason, citations
+```
+
+* **HTTP.** Each app has `TracingMiddleware`: one server span per request, named by method and route template
+  (never the raw URL). `GET /health` is not traced. `services.http.post` sends the W3C `traceparent` header of the
+  current span, so the retrieval and generation spans join the orchestrator's trace.
+* **RabbitMQ.** The job messages carry no trace context (the phase 4 contracts are unchanged). In one process
+  (`InProcess`) `orchestrator.execute` is a child of `POST /query`; with separate processes they are two traces
+  with the same `correlation_id`.
+* **Correlation ids and trace ids.** The correlation ids above remain the application's mechanism: they travel in
+  the contracts and are checked. A trace id is the tracer's and travels in a header; nothing reads it. Every span
+  carries `adaptiverag.request_id` / `job_id` / `session_id` and `correlation_id` (the job id; without a job, the
+  request id). No contract changed.
+* **Never recorded:** the question, queries, the answer, prompts, chunk and document text, chunk ids, headers
+  (Authorization, cookies), bodies, raw URLs, exception messages. Attributes go through one allow-list
+  (`services/telemetry/spans.py`).
+* **Errors.** An exception is recorded on the span (its type, status `ERROR`) and re-raised unchanged. A failed job
+  marks `orchestrator.execute` from its final event, and a 5xx marks the HTTP span; the 200 / 502 / 504 mapping is
+  unchanged.
+* **Without a collector** (the default) nothing is exported, no tracer provider is made and every span is a no-op.
+  `OTEL_TRACES_EXPORTER=console` prints spans to stderr; `OTEL_EXPORTER_OTLP_ENDPOINT=http://<collector>:4318`
+  exports OTLP over HTTP (`pip install -e ".[telemetry,telemetry-otlp]"`). Set the variables in every service's
+  terminal. A tracing misconfiguration is logged and leaves tracing off; it never stops a service.
+* **Tests:** `tests/test_telemetry.py` (42 offline tests) reads spans from the SDK's in-memory exporter; no
+  collector or other infrastructure.
 
 ## Local development
 
@@ -190,4 +231,5 @@ services unchanged.
 * The orchestrator reads the chunk catalog (`data/chunks`) for the corpus organizations; the files must be the ones
   the retrieval service indexed.
 * The retrieval response carries the full chunk of every evidence item (a few KB each), not references.
-* Installing FastAPI 0.142 also installs `opentelemetry-api` as one of its dependencies; nothing here uses it.
+* A trace does not cross RabbitMQ; the api's and the orchestrator's spans are joined by `correlation_id` when they
+  run as separate processes (phase 10A, docs/telemetry.md).

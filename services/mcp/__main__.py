@@ -53,6 +53,7 @@ def build_database():
 def main(argv=None) -> int:
     import anyio
 
+    from .. import telemetry
     from ..config import Settings
     from .server import SPECS, build_server
 
@@ -65,6 +66,7 @@ def main(argv=None) -> int:
 
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    telemetry.configure(telemetry.MCP)
     s = Settings.from_env()
     tools = build_tools(args.retrieval, s.retrieval_url, s.service_timeout_s)
     server = build_server(tools)

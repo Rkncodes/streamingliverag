@@ -86,6 +86,10 @@ Per call the repository does the following:
 
 There is no pool, and nothing is retried.
 
+Phase 10A: the call is one tracing span, `db.query` (`db.system.name` = `postgresql`, the query's name, the schema,
+the row count, `truncated`; on a failure the error class). The SQL, the parameters, the rows and `DATABASE_URL` are
+never recorded. Connections, transactions and results are unchanged. See [telemetry.md](telemetry.md).
+
 **Errors** (`isError` results, as in phase 8):
 
 | situation | code | message |

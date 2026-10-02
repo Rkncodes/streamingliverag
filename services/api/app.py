@@ -9,12 +9,14 @@ from __future__ import annotations
 
 from fastapi import FastAPI, HTTPException, Response
 
+from .. import telemetry
 from ..contracts import QueryRequest, QueryResponse
 from ..orchestrator.client import OrchestratorClient, QueryTimeout
 
 
 def create_app(orchestrator: OrchestratorClient) -> FastAPI:
     app = FastAPI(title="AdaptiveRAG API", version="1")
+    app.add_middleware(telemetry.TracingMiddleware, service=telemetry.API)
 
     @app.get("/health")
     def health() -> dict:

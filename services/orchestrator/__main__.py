@@ -12,12 +12,14 @@ def main() -> int:
     from adaptive.jobs.rabbitmq import RabbitMQBroker
     from adaptive.session_store.redis_store import RedisSessionStore
 
+    from .. import telemetry
     from ..config import Settings
     from ..generation.client import GenerationClient
     from ..retrieval.client import RetrievalClient
     from .worker import OrchestratorWorker, build_controller, load_catalog
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    telemetry.configure(telemetry.ORCHESTRATOR)
     s = Settings.from_env()
     s.require("rabbitmq_url", "redis_url")
     retrieval = RetrievalClient(httpx.Client(base_url=s.retrieval_url, timeout=s.service_timeout_s), s.retrieval_mode,

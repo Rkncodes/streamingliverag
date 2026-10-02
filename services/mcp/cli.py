@@ -8,7 +8,7 @@
 
   --url URL      a running server (default http://127.0.0.1:8003/mcp)
   --stdio        start `python -m services.mcp --transport stdio` as a subprocess instead (--retrieval and the
-                 DATABASE_*, MCP_*, RETRIEVAL_*, SERVICE_TIMEOUT_S environment variables passed on)
+                 DATABASE_*, MCP_*, RETRIEVAL_*, OTEL_*, SERVICE_TIMEOUT_S environment variables passed on)
   -a key=value   a string argument;  -j key=<json>  a typed argument (number, true/false, null, list, object)
   --summary      document_search: one line per result instead of the full JSON
 
@@ -64,7 +64,7 @@ async def run(args) -> int:
     if args.stdio:
         # The SDK starts the server with a minimal environment; pass on the server's own settings (DATABASE_URL, ...)
         settings = {k: v for k, v in os.environ.items()
-                    if k.startswith(("DATABASE_", "MCP_", "RETRIEVAL_")) or k == "SERVICE_TIMEOUT_S"}
+                    if k.startswith(("DATABASE_", "MCP_", "RETRIEVAL_", "OTEL_")) or k == "SERVICE_TIMEOUT_S"}
         target = StdioServerParameters(command=sys.executable, env=settings,
                                        args=["-m", "services.mcp", "--transport", "stdio", "--retrieval", args.retrieval])
     else:

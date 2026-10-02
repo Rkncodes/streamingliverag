@@ -22,11 +22,13 @@ def provider_from(name: str):
 def main() -> int:
     import uvicorn
 
+    from .. import telemetry
     from ..config import Settings
     from .app import create_app
     from .service import GenerationService
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    telemetry.configure(telemetry.GENERATION)
     s = Settings.from_env()
     app = create_app(GenerationService(provider_from(s.generation_provider)))
     uvicorn.run(app, host=s.generation_host, port=s.generation_port)

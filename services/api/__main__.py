@@ -12,11 +12,13 @@ def main() -> int:
     from adaptive.jobs.rabbitmq import RabbitMQBroker
     from adaptive.session_store.redis_store import RedisSessionStore
 
+    from .. import telemetry
     from ..config import Settings
     from ..orchestrator.client import OrchestratorClient
     from .app import create_app
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    telemetry.configure(telemetry.API)
     s = Settings.from_env()
     s.require("rabbitmq_url", "redis_url")
     client = OrchestratorClient(lambda: RabbitMQBroker(s.rabbitmq_url), RedisSessionStore(s.redis_url),

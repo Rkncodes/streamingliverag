@@ -18,8 +18,8 @@ services.mcp.server  ── tools/list, tools/call (schemas = services/mcp/contr
   └─ database_query  ──► DatabaseAdapter: NotConfigured, or PostgreSQL with DATABASE_URL (phase 9, docs/database.md)
 ```
 
-Not implemented: OpenTelemetry, React, MCP resources and prompts,
-authentication.
+Not implemented: React, MCP resources and prompts, authentication. OpenTelemetry tracing: phase 10A, see Tracing
+below and [telemetry.md](telemetry.md).
 
 ## Tools
 
@@ -85,6 +85,38 @@ An unknown tool name is a JSON-RPC protocol error `-32602 Unknown tool: <name>` 
 runs (`services.correlation`), so a remote `RetrievalRequest` carries them and `services.http.post` refuses a response
 that does not echo them. The retrieval service logs `job` and `session`. Nothing is carried from one call to the next.
 
+## Tracing (phase 10A)
+
+Every call of one of the three tools is an OpenTelemetry span, `mcp.tool.execute`, and what the tool calls is its
+child:
+
+```
+mcp.tool.execute                     mcp.tool.name, correlation ids; on an isError result: mcp.error.code, ERROR
+├── POST /retrieve                   document_search, remote backend: the retrieval service's span, same trace
+│   └── retrieval.execute
+│       └── retrieval.round ...      mode=iterative
+├── retrieval.execute                document_search, local backend
+└── db.query                         database_query with PostgreSQL: db.system.name=postgresql, db.query.name,
+                                     db.namespace, db.response.returned_rows, db.query.truncated
+```
+
+* **Tool results are unchanged.** Every result and every error code above is what phase 8 and 9 return. An
+  `isError` result sets the span's status to `ERROR` with `mcp.error.code` (and `error.type`, the exception's
+  type); an empty result is not an error. An unknown tool name is a protocol error and has no span.
+* **Correlation.** The span carries the call's `request_id` (given or made by the server), `job_id` and
+  `session_id`, and `correlation_id` (the job id when given, else the request id). The same ids are on the
+  retrieval and database spans. They remain the application's correlation mechanism; the trace id is the tracer's
+  own and nothing reads it. The remote backend sends the W3C `traceparent` header with `POST /retrieve`.
+* **Never recorded:** the search query, tool arguments other than the tool name, result text, chunk ids, document
+  names, the SQL statement, query parameters, rows, `DATABASE_URL`, exception messages. `db.query.name` is the
+  contract's query name (`documents`, `document_versions`, `chunks_by_document`).
+* **Without a collector** (the default) the spans are no-ops. `OTEL_TRACES_EXPORTER=console` prints them to stderr
+  (stdout is the stdio transport's channel); `OTEL_EXPORTER_OTLP_ENDPOINT` exports OTLP over HTTP. The process's
+  `service.name` is `adaptiverag-mcp`. `services.mcp.cli --stdio` passes the `OTEL_*` variables on.
+* **Tests:** `tests/test_telemetry.py`, with the SDK's in-memory exporter: a span per tool call, every error code,
+  the remote search in one trace, the database span under its tool call, no payload in any span, and tool results
+  identical with tracing broken.
+
 ## Running
 
 ```
@@ -96,7 +128,8 @@ python -m services.mcp --retrieval local                          # load the sta
 python -m services.mcp.cli list | call <tool> -a key=value -j key=<json> [--args-file f.json] [--summary] [--stdio]
 ```
 
-Environment: `MCP_HOST`, `MCP_PORT` (8003), `MCP_RETRIEVAL` (`remote`), `RETRIEVAL_URL`, `SERVICE_TIMEOUT_S`.
+Environment: `MCP_HOST`, `MCP_PORT` (8003), `MCP_RETRIEVAL` (`remote`), `RETRIEVAL_URL`, `SERVICE_TIMEOUT_S`; tracing:
+`OTEL_TRACES_EXPORTER`, `OTEL_EXPORTER_OTLP_ENDPOINT` (off by default).
 
 Manual `as_of` check (PowerShell). On 2026-03-15 the February UConn procedures apply and the July version does not.
 The UConn Policy (effective 2026-07-01) is excluded too. Other UConn documents can only appear if their metadata

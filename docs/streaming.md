@@ -93,7 +93,32 @@ relevance gate abstains without a model call, or the model and the verifier abst
 `StreamingRetrieval.trace` (`RetrievalTrace`): the question, `max_rounds`, per round the iteration, query, strategy
 (and target organization), chunk ids retrieved, new, excluded, retained and shown, promotions, the coverage decision
 with its reason and signals, and the decision (`refine: ...` / `stop: ...`); the skipped refinements and the stop
-reason. No timings, so identical inputs give identical traces. Each round maps to a future tracing span.
+reason. No timings, so identical inputs give identical traces.
+
+## Tracing (phase 10A)
+
+Since phase 10A each round is an OpenTelemetry span, when the loop runs in the retrieval service
+(`RETRIEVAL_MODE=iterative`, or `mode=iterative` of the MCP `document_search`):
+
+```
+retrieval.execute                retrieval.mode=iterative, retrieval.rounds, retrieval.stop_reason
+├── retrieval.round              retrieval.round.number=1, strategy=initial, decision=refine
+├── retrieval.round              number=2, strategy=organization_focus, decision=stop, retrieval.stop_reason
+└── ...
+```
+
+A round span has the round's number, strategy, the counts of chunks retrieved, new, excluded, retained, shown and
+promoted, the coverage decision (`retrieval.coverage.decision`, `retrieval.coverage.achieved`), `refine` or `stop`,
+and on the last round the stop reason. Its start and end are when the round ran: the timing the trace does not have.
+
+`RetrievalTrace` is not replaced and not changed. It stays the loop's deterministic execution state, returned with
+the retrieval; the span only reads counts and decisions from the round's entry. The round's query, chunk ids,
+coverage reason and target organization are in the trace only, never in a span.
+
+The spans are made by `services/retrieval/rounds.py` (`TracedIterativeRetriever`, a subclass that observes where a
+round ends); nothing in `adaptive/streaming` changed, and the traced loop returns the same evidence and trace
+(`tests/test_telemetry.py`). The loop run directly (`python -m adaptive.streaming`, `StreamingController`) is not
+traced. Without an exporter configured the spans are no-ops. See [telemetry.md](telemetry.md).
 
 ## Sessions, jobs, stored sessions
 
@@ -105,6 +130,7 @@ reason. No timings, so identical inputs give identical traces. Each round maps t
 * **Phase 4**: the worker calls the session controller as before; the job lifecycle and contracts are unchanged
   (tested). The jobs CLI keeps the frozen retrieval.
 * **Phase 5**: the trace is execution state: it is not part of the `Session`, so nothing about the loop is stored.
+* **Phase 10A**: one tracing span per round in the retrieval service (see Tracing above).
 
 ## Evaluation
 

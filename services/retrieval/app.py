@@ -8,12 +8,14 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
+from .. import telemetry
 from ..contracts import RetrievalRequest, RetrievalResponse
 from .service import RetrievalService
 
 
 def create_app(service: RetrievalService) -> FastAPI:
     app = FastAPI(title="AdaptiveRAG retrieval", version="1")
+    app.add_middleware(telemetry.TracingMiddleware, service=telemetry.RETRIEVAL)
 
     @app.get("/health")
     def health() -> dict:

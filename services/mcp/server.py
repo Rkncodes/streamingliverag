@@ -12,6 +12,9 @@ Server), so the published schemas are exactly the contracts' and nothing is acce
 
 Every call runs in a worker thread with its correlation ids bound (services.correlation), so a remote retrieval
 request carries request_id / job_id / session_id to the retrieval service, which echoes them.
+
+Phase 10A: every call of a known tool is an mcp.tool.execute span (tool name, correlation ids; for an isError result
+the error code and the status ERROR). The retrieval and database spans of the call are its children.
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ from mcp.server import Server
 from mcp.shared.exceptions import MCPError
 from pydantic import BaseModel, ValidationError
 
-from .. import correlation
+from .. import correlation, telemetry
 from ..http import ServiceError
 from .contracts import (Correlation, DatabaseQueryInput, DatabaseQueryOutput, DocumentSearchInput,
                         DocumentSearchOutput, MetadataLookupInput, MetadataLookupOutput, ToolErrorDetail)
@@ -98,16 +101,26 @@ def build_server(tools: Tools) -> Server:
         if spec is None:
             log.info("tool=%r rejected: unknown tool", params.name)
             raise MCPError(types.INVALID_PARAMS, f"Unknown tool: {params.name}", {"tools": sorted(SPECS)})
+        with telemetry.span("mcp.tool.execute", telemetry.MCP, {"mcp.tool.name": spec.name}) as span:
+            return await execute(spec, params, span)
+
+    async def execute(spec: ToolSpec, params: types.CallToolRequestParams, span) -> types.CallToolResult:
+        def failed(err: ToolErrorDetail, exc: Exception) -> types.CallToolResult:
+            span.fail(exc)  # phase 10A: the exception's type and the tool error code; never its message
+            span.set({"mcp.error.code": err.code})
+            return _error(err)
+
         try:
             inp = spec.input.model_validate(params.arguments or {})
         except ValidationError as e:
             details = _validation_details(e)
             log.info("tool=%s rejected arguments: %s", spec.name, [".".join(d["loc"]) for d in details])
-            return _error(ToolErrorDetail(code="invalid_arguments",
+            return failed(ToolErrorDetail(code="invalid_arguments",
                                           message=f"{len(details)} invalid argument(s) for {spec.name}",
-                                          details=details))
+                                          details=details), e)
         corr = Correlation(request_id=inp.request_id or new_request_id(), job_id=inp.job_id,
                            session_id=inp.session_id)
+        span.correlate(corr.model_dump())
 
         def run():
             with correlation.bind(**corr.model_dump()):
@@ -117,14 +130,14 @@ def build_server(tools: Tools) -> Server:
             out = await anyio.to_thread.run_sync(run)
         except ToolFailure as f:
             log.info("tool=%s request=%s failed: %s", spec.name, corr.request_id, f.code)
-            return _error(ToolErrorDetail(code=f.code, message=f.message, details=f.details, correlation=corr))
+            return failed(ToolErrorDetail(code=f.code, message=f.message, details=f.details, correlation=corr), f)
         except ServiceError as e:
             log.warning("tool=%s request=%s retrieval service: %s", spec.name, corr.request_id, e)
-            return _error(ToolErrorDetail(code="backend_unavailable", message=str(e), correlation=corr))
-        except Exception:
+            return failed(ToolErrorDetail(code="backend_unavailable", message=str(e), correlation=corr), e)
+        except Exception as e:
             log.exception("tool=%s request=%s crashed", spec.name, corr.request_id)
-            return _error(ToolErrorDetail(code="internal_error", message=f"{spec.name} failed; see the server log",
-                                          correlation=corr))
+            return failed(ToolErrorDetail(code="internal_error", message=f"{spec.name} failed; see the server log",
+                                          correlation=corr), e)
         structured = spec.output.model_validate(out.model_dump()).model_dump(mode="json")
         log.info("tool=%s request=%s job=%s session=%s ok", spec.name, corr.request_id, corr.job_id, corr.session_id)
         return types.CallToolResult(

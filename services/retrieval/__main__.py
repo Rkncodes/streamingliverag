@@ -13,12 +13,14 @@ def main() -> int:
 
     from generation.pipeline import load_stack
 
+    from .. import telemetry
     from ..config import Settings
     from .app import create_app
     from .service import RetrievalService
 
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    telemetry.configure(telemetry.RETRIEVAL)
     s = Settings.from_env()
     app = create_app(RetrievalService(load_stack(rerank=True)))
     uvicorn.run(app, host=s.retrieval_host, port=s.retrieval_port)

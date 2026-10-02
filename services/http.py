@@ -1,8 +1,12 @@
-"""Service-to-service HTTP calls (phase 7): POST a contract, validate the response contract and its correlation ids."""
+"""Service-to-service HTTP calls (phase 7): POST a contract, validate the response contract and its correlation ids.
+Phase 10A: the request carries the current span's W3C trace headers (none when nothing is being traced), so the
+called service's spans join the caller's trace."""
 
 from __future__ import annotations
 
 import httpx
+
+from .telemetry import trace_headers
 
 
 class ServiceError(RuntimeError):
@@ -11,7 +15,8 @@ class ServiceError(RuntimeError):
 
 def post(http: httpx.Client, path: str, request, response_type):
     try:
-        resp = http.post(path, content=request.encode(), headers={"content-type": "application/json"})
+        resp = http.post(path, content=request.encode(),
+                         headers={"content-type": "application/json", **trace_headers()})
     except httpx.HTTPError as e:
         raise ServiceError(f"{path}: {type(e).__name__}: {e}") from e
     if resp.status_code != 200:

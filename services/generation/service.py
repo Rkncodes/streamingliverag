@@ -13,6 +13,7 @@ import logging
 from generation.answer import GroundedAnswerer
 from generation.providers import LLMProvider
 
+from .. import telemetry
 from ..contracts import GenerationRequest, GenerationResponse
 
 log = logging.getLogger(__name__)
@@ -24,11 +25,18 @@ class GenerationService:
         self.answerer = GroundedAnswerer(provider)
 
     def handle(self, req: GenerationRequest) -> GenerationResponse:
-        a = self.answerer.answer(req.question, [e.evidence() for e in req.evidence],
-                                 question_versions=req.question_versions)
-        log.info("generate job=%s session=%s evidence=%d status=%s%s", req.job_id, req.session_id, len(req.evidence),
-                 a.status, f" ({a.abstention_reason})" if a.abstention_reason else "")
-        return GenerationResponse(**req.ids(), answer=a)
+        telemetry.annotate(ids=req.ids())  # the enclosing span: the HTTP request's
+        with telemetry.span("generation.execute", telemetry.GENERATION, ids=req.ids(), attributes={
+                "generation.provider": getattr(self.provider, "name", None),
+                "generation.model": getattr(self.provider, "model", None),
+                "generation.evidence_count": len(req.evidence)}) as span:
+            a = self.answerer.answer(req.question, [e.evidence() for e in req.evidence],
+                                     question_versions=req.question_versions)
+            span.set({"generation.status": a.status, "generation.abstention_reason": a.abstention_reason,
+                      "generation.citation_count": len(a.citations)})
+            log.info("generate job=%s session=%s evidence=%d status=%s%s", req.job_id, req.session_id,
+                     len(req.evidence), a.status, f" ({a.abstention_reason})" if a.abstention_reason else "")
+            return GenerationResponse(**req.ids(), answer=a)
 
     def health(self) -> dict:
         return {"status": "ok", "service": "generation", "provider": getattr(self.provider, "name", None),

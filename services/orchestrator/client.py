@@ -28,6 +28,7 @@ from adaptive.jobs.client import JobClient
 from adaptive.jobs.contracts import JobStatus
 from adaptive.session_store.store import SessionStore
 
+from .. import telemetry
 from ..contracts import QueryRequest, QueryResponse
 
 
@@ -42,11 +43,14 @@ class OrchestratorClient:
 
     def query(self, req: QueryRequest) -> QueryResponse:
         request_id = req.request_id or uuid.uuid4().hex
+        ids = {"request_id": request_id, "session_id": req.session_id}
+        telemetry.annotate(ids=ids)  # the api's HTTP span
         with self._lock:
             broker = self.broker_factory()
             try:
                 jobs = JobClient(broker)
                 job_id = jobs.submit(req.question, req.session_id)
+                telemetry.annotate(ids={**ids, "job_id": job_id})
                 if self.pump is not None:
                     self.pump()
                 status = jobs.wait(job_id, self.timeout_s)
