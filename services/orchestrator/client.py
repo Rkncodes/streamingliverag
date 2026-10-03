@@ -69,3 +69,9 @@ class OrchestratorClient:
             raise RuntimeError(f"job {job_id} completed turn {result.turn_index}, but the session store does not have it")
         turn = session.turns[result.turn_index]
         return QueryResponse.of_turn(request_id, job_id, req.session_id, turn)
+
+    def session(self, session_id: str) -> dict | None:
+        """The stored session as the phase 3 Session.to_dict() gives it, or None (phase 10B: read only; the api's
+        GET /sessions/{session_id}). Nothing is computed here: it is what the orchestrator stored."""
+        stored = self.sessions.get(session_id)
+        return None if stored is None else stored.to_dict()

@@ -158,7 +158,11 @@ class Span:
             _failed("attach")
 
     def _context(self):
-        return self._span.get_span_context() if self._span is not None else None
+        """The span's own context, or None when it records nothing. A no-op span under a caller's `traceparent`
+        carries the caller's ids, not ids of its own: it must not be reported as a span of this service."""
+        if self._span is None or not self._span.is_recording():
+            return None
+        return self._span.get_span_context()
 
     @property
     def trace_id(self) -> str | None:
