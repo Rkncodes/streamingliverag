@@ -59,43 +59,77 @@ def _retry_after(e: Exception) -> float | None:
         return None
 
 
+def _unfinished_document(e: Exception) -> bool:
+    """Groq could not finish the structured output: HTTP 400 with code json_validate_failed, or a message saying the
+    completion tokens ran out before a valid document. The only provider error that a larger budget can cure."""
+    if getattr(e, "status_code", None) != 400:
+        return False
+    body = getattr(e, "body", None)
+    error = body.get("error", body) if isinstance(body, dict) else {}
+    code = error.get("code") if isinstance(error, dict) else None
+    return code == "json_validate_failed" or "max completion tokens reached" in str(e).lower()
+
+
 class GroqProvider:
     """Groq chat completions with strict JSON-schema structured output.
 
     Determinism: temperature 0 and a fixed seed are sent, but Groq documents no determinism guarantee
     for seed; outputs may still vary between runs (hardware/batching). Validation is deterministic
     given an output, and every raw output is stored.
+
+    Completion budget: the model's reasoning and its answer share max_completion_tokens. When the budget runs out
+    before the structured output is complete (Groq answers HTTP 400 json_validate_failed, "max completion tokens
+    reached before generating a valid document", or returns finish_reason "length"), the same request is sent once
+    more with retry_max_completion_tokens. The unfinished output is never used: either a later attempt returns a
+    complete document, which is validated like any other, or the call fails with ProviderError.
     """
 
     name = "groq"
 
     def __init__(self, model: str = C.GROQ_MODEL, temperature: float = C.TEMPERATURE, seed: int = C.SEED,
-                 reasoning_effort: str = C.REASONING_EFFORT, max_completion_tokens: int = C.MAX_COMPLETION_TOKENS):
+                 reasoning_effort: str = C.REASONING_EFFORT, max_completion_tokens: int = C.MAX_COMPLETION_TOKENS,
+                 retry_max_completion_tokens: int = C.RETRY_MAX_COMPLETION_TOKENS):
         from groq import Groq  # reads GROQ_API_KEY from the environment; never passed in code
 
         self.model = model
         self.settings = {"temperature": temperature, "seed": seed, "reasoning_effort": reasoning_effort,
                          "max_completion_tokens": max_completion_tokens}
+        self.retry_max_completion_tokens = retry_max_completion_tokens
         self._client = Groq()
 
     def complete(self, system: str, user: str, schema: dict) -> ProviderResponse:
         import groq
 
-        try:
-            r = self._client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-                response_format={"type": "json_schema",
-                                 "json_schema": {"name": "grounded_answer", "strict": True, "schema": schema}},
-                **self.settings,
-            )
-        except groq.APIError as e:  # auth, rate limit, bad request, server and connection errors
-            raise ProviderError(f"{type(e).__name__}: {e}", getattr(e, "status_code", None), _retry_after(e)) from e
-        choice = r.choices[0]
-        usage = r.usage.model_dump() if getattr(r, "usage", None) else {}
-        return ProviderResponse(text=choice.message.content or "", provider=self.name, model=r.model,
-                                finish_reason=choice.finish_reason, usage=usage, settings=dict(self.settings),
-                                system_fingerprint=getattr(r, "system_fingerprint", None))
+        budgets = [self.settings["max_completion_tokens"]]
+        if self.retry_max_completion_tokens > budgets[0]:
+            budgets.append(self.retry_max_completion_tokens)
+        for attempt, budget in enumerate(budgets, 1):
+            settings = {**self.settings, "max_completion_tokens": budget}
+            last = attempt == len(budgets)
+            try:
+                r = self._client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+                    response_format={"type": "json_schema",
+                                     "json_schema": {"name": "grounded_answer", "strict": True, "schema": schema}},
+                    **settings,
+                )
+            except groq.APIError as e:  # auth, rate limit, bad request, server and connection errors
+                if _unfinished_document(e) and not last:
+                    continue  # the budget ran out mid-document: once more, with the larger one
+                note = f" (completion budget {budget} tokens, attempt {attempt} of {len(budgets)})" if _unfinished_document(e) else ""
+                raise ProviderError(f"{type(e).__name__}: {e}{note}", getattr(e, "status_code", None), _retry_after(e)) from e
+            choice = r.choices[0]
+            if choice.finish_reason == "length":  # cut off at the budget: not a document, whatever it contains
+                if not last:
+                    continue
+                raise ProviderError(f"the completion budget ({budget} tokens) was exhausted before the structured output "
+                                    f"was complete (attempt {attempt} of {len(budgets)})")
+            usage = r.usage.model_dump() if getattr(r, "usage", None) else {}
+            return ProviderResponse(text=choice.message.content or "", provider=self.name, model=r.model,
+                                    finish_reason=choice.finish_reason, usage=usage, settings=settings,
+                                    system_fingerprint=getattr(r, "system_fingerprint", None))
+        raise AssertionError("unreachable: every attempt returns or raises")
 
 
 class StubProvider:

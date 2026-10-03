@@ -34,7 +34,32 @@ A question has several intents when it asks two or three separate questions:
 * two question sentences: `What is X? When does Y apply?`
 * coordinated interrogative clauses: `..., and what ...`, `... and when ...`, `..., and is ...` (an auxiliary needs
   the comma), `...; how ...`, and a serial list `..., how ..., and when ...` (bare-comma splits only when the list
-  ends with `, and <wh-word>`).
+  ends with `, and <wh-word>`);
+* one question about a list of organizations' subjects: `What are UConn's travel advance requirements, Rutgers
+  University's Travel Card rules, and McGill University's non-travel advance policy?`. Only a `What / Which is / are
+  ...` question, and only when every list item starts with an organization (a corpus organization, an alias, or an
+  institution-style name), names no second one, has a subject after it, and the organizations all differ. Each item
+  becomes the intent `What are <item>?`, in the user's words. A list part that names no organization belongs to the
+  item before it (`Rutgers' approval and settlement rules`), so `UConn's and Rutgers' Travel Card rules`, `the
+  differences between UConn's ... and Rutgers' ...` and a list within one organization stay one question.
+
+* institution-led clauses: `At UConn, what is X, and at Rutgers, what is Y?`, `For UConn, what is X; for Rutgers,
+  what is Y?`, and the serial form `At A, ..., at B, ..., and at C, ...?`. A clause is cut where `and` / `;` (or, in
+  a serial list ending in `, and at ...`, a comma) is followed by a scope `at | for | in | under | within ..., ` and
+  then a question, and only when that scope names an institution (a corpus organization, an alias, or an
+  institution-style name). Such a clause keeps its own scope instead of the first clause's; a first scope that names
+  no institution (`Under the procedures effective July 1, 2026, `) still applies to it;
+* one question asked of a list of institutions: `What are the Travel Card rules at UConn and Rutgers?`, `At UConn,
+  Rutgers and McGill, what are the travel advance rules?`. The list must follow `at | for | in`, hold nothing but
+  two or more different institutions (every institution the question names), joined by commas, `and` or `or`, and
+  end the question or its leading scope. Each intent is the question with the list replaced by one institution. A
+  question that compares them (`between`, `difference`, `compare`, `same`, `both`, `either`, `than`, `versus`) is
+  not split.
+
+Short names of institutions come from `config/organization_aliases.toml` (`UConn`, `Rutgers`, `McGill`, ...).
+
+Every intent records its `topic` when it is a `What is / are ...` or `what about ...` question: the noun phrase asked
+for, without the organization that leads it (`travel advance requirements`); empty for other question forms.
 
 It is **not** split (the question goes to phase 1 unchanged) when:
 
@@ -65,6 +90,22 @@ organization or alias (and does not contain or sit inside one), and that name no
 
 Each intent's sub-query goes through the frozen `retrieve()`: hybrid retrieval, its **own temporal resolution**, the
 rerank pool, reranking, top 10. The whole question is retrieved as well (`r0`, the retrieval phase 1 would use).
+
+**Entity alignment** (`adaptive/multi/entity.py`, applied to every retrieval the controller makes: the whole
+question's and each intent's). A question names an entity when it writes a term as a name: a capitalized phrase
+(`Travel Card`) or a cased compound (`PCard`); organizations and institutions are not entities, and a question written
+without capitals names none. When the retrieved evidence holds a chunk that names another thing of the same head as a
+name (`PCard`, `Purchasing Card` for a Travel Card question) and does not name the asked one, the retrieval is
+*contested*: those chunks are removed, so they are never shown, quoted or cited. If fewer than two of the chunks that
+would then be shown name the asked entity, the retrieval is taken again from the whole reranked pool (20) and the
+first two chunks that name it (`employee travel card (TCard)`) are placed first; everything else keeps the reranker's
+order. An uncontested retrieval is returned untouched. Retrieval, reranking, the prompt and the verifier are unchanged.
+
+An intent whose own words name organizations keeps, of what its retrieval returned, only those organizations' chunks
+(`fusion.retrieve_intent`; order, ranks and scores unchanged, chunks without an organization kept). Another
+organization's chunk is therefore never that intent's evidence. An organization carried from another clause does not
+filter, and an intent that names none keeps its whole retrieval. If nothing of its organization was retrieved, the
+intent is unsupported.
 
 * **Admissible**: the intent is not outside the corpus, and its best cross-encoder score is
   `>= MIN_RERANK_LOGIT` (0.0, the answerer's own low-relevance threshold). An intent outside the corpus is never

@@ -27,7 +27,16 @@ An answer is accepted only if ALL of these hold (otherwise the caller abstains):
   * every calendar date written in a claim ("March 1, 2026", "July 2026", "2026-07-01") occurs in the
     question, in the text of a cited source, or in a cited source's effective/superseded date;
   * not_in_sources entries (parts of the question the sources do not answer) contain no numbers except
-    those in the question or in the sources' metadata: they describe a gap, never a sourced fact.
+    those in the question or in the sources' metadata: they describe a gap, never a sourced fact;
+  * named entities (ENTITY_GROUPS: things of one kind that must not be taken for one another, each with
+    its aliases; e.g. the Travel Card and the PCard): a claim that names an entity is rejected when its
+    evidence is about another entity of the same group and not about that one:
+      - its supporting quotes name another entity of the group and none of them names the claimed one
+        (a PCard sentence quoted for a Travel Card claim, also from a source that mentions both); or
+      - its quotes name no entity of the group, and the cited sources they were found in (text and
+        displayed metadata) name another entity of the group and not the claimed one.
+    Evidence that names both is accepted when the claimed entity is named where the claim is supported;
+    evidence that names no entity of the group ("the card") is not judged by this rule.
 """
 
 from __future__ import annotations
@@ -60,6 +69,26 @@ _WORDS.update({"thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 7
                "hundred": 100})
 _MONTHS = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october",
            "november", "december"]
+
+
+# Entities that are different things although their rules read alike. group -> entity name -> the aliases under
+# which a claim or a source names it, as a pattern over normalized text (`normalize`: case, hyphen and whitespace
+# variants are already folded). An alias belongs to one entity of its group only. To add a distinction, add an
+# entry: the check below is the same for every group.
+ENTITY_GROUPS: dict[str, dict[str, re.Pattern]] = {
+    "card": {
+        # Travel Card, University Travel Card, University(-)Issued Travel Card, employee travel card, TCard, T-Card
+        "Travel Card": re.compile(r"\btravel cards?\b|\bt-?cards?\b"),
+        # PCard, P-Card, Purchasing Card, Procurement Card
+        "PCard": re.compile(r"\bp-?cards?\b|\b(?:purchasing|procurement) cards?\b"),
+    },
+}
+
+
+def entities_named(norm_text: str) -> dict[str, set[str]]:
+    """group -> the entities of ENTITY_GROUPS that normalized text names."""
+    return {group: {name for name, alias in members.items() if alias.search(norm_text)}
+            for group, members in ENTITY_GROUPS.items()}
 
 
 def normalize(text: str) -> str:
@@ -237,6 +266,7 @@ def verify(raw: str, ctx: Context, question: str = "", question_versions: dict[s
                 problems.append(f"claim {i}: quote not found in cited source(s): {q[:80]!r}")
             found_in.append((q, passages, hits))
         problems += _version_problems(i, cl, cited, found_in, groups, series_of, sources, norm, question_versions or {})
+        problems += _entity_problems(i, cl, found_in, sources, norm)
         # numbers may also come from the cited sources' displayed metadata (effective dates, clause,
         # section titles): e.g. "the February 2026 procedures". Never from chunk ids (hash digits).
         cited_text = " ".join(_source_text(sources, s) for s in cited)
@@ -263,6 +293,30 @@ def verify(raw: str, ctx: Context, question: str = "", question_versions: dict[s
             problems.append(f"not_in_sources {j}: number(s) {stray} are neither in the question nor in source metadata")
     verdict.ok = not problems
     return verdict
+
+
+def _entity_problems(i: int, cl: Claim, found_in, sources: dict, norm: dict[str, str]) -> list[str]:
+    """A claim that names an entity of ENTITY_GROUPS must not rest on evidence about another entity of its group.
+    Judged where the claim is supported: its quotes that were found, then the sources they were found in."""
+    claimed = entities_named(normalize(cl.text))
+    if not any(claimed.values()):
+        return []
+    supported = [(passages, hits) for _, passages, hits in found_in if hits]
+    in_quotes = entities_named(" ".join(p for passages, _ in supported for p in passages))
+    labels = sorted({label for _, hits in supported for label in hits})
+    in_sources = entities_named(" ".join(f"{norm[label]} {normalize(_source_metadata(sources, label))}" for label in labels))
+    problems = []
+    for group, names in claimed.items():
+        for name in sorted(names):
+            for where, found in (("supporting quote(s)", in_quotes[group]), (f"cited source(s) {labels}", in_sources[group])):
+                others = sorted(found - {name})
+                if name in found:
+                    break  # named where the claim is supported
+                if others:
+                    problems.append(f"claim {i}: names the {name}, but its {where} name only the {', '.join(others)}: "
+                                    f"evidence about a different {group} does not support it")
+                    break
+    return problems
 
 
 def _version_problems(i: int, cl: Claim, cited: list[str], found_in, groups, series_of, sources, norm,

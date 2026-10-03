@@ -27,6 +27,58 @@ Single-quote the questions: inside double quotes the shell turns `$180,000` into
 | `evaluation/session/` | 8 conversations (`cases.py`) and the offline evaluation (`run.py`, `results/offline.*`) |
 | `tests/test_session.py` | 15 offline tests |
 
+## Turn gate
+
+Before a question is resolved, `adaptive/session/gate.py` decides (rules, no model) whether the utterance is a
+question for the corpus at all. Only `retrieve` reaches the resolution rules below; the other three never retrieve
+and never call the model. The decision and `retrieval_required` are recorded in `Resolution.signals`.
+
+* **wait** (`Resolution.kind = "wait"`, status `waiting`): the utterance is visibly unfinished: it trails off
+  (`What is the UConn travel...`), or it has no closing punctuation and ends on a word or mark that cannot end a
+  request (`What are the`, `... and`, `UConn's`, a trailing comma, or only a question's opening words). The text is
+  kept in the turn (`signals.pending`); the next utterance continues it, or replaces it when it repeats it and goes
+  on, and the completed question is recorded whole.
+* **suppress** (`"suppress"`, status `suppressed`, empty text): an acknowledgement or a closing (`Thanks, that's
+  all.`): only closing small talk, at least one word that marks it as such, no question mark.
+* **presentation** (`"presentation"`): a request to lay the previous answer out differently (`Give me that in two
+  bullet points`, `as a numbered list`). The turn's answer is the last question's stored answer (claims, citations,
+  evidence) with only its text re-laid from its verified claims: no claim is dropped, reworded or added, so an answer
+  with fewer claims than items asked for gives fewer items. With no answer to lay out, the turn is `unresolved`.
+* **retrieve**: everything else, including anything with a word outside the gate's small vocabularies (`Give me the
+  UConn advance rules in two bullet points`, `Ok, what about the deadline?`, `Make it shorter`). Shortening or
+  summarizing would need a model and is not a presentation turn.
+
+A waiting, suppressed or presentation turn does not change the topic: a later follow-up is resolved against the last
+turn that was a question (`Session.context`).
+
+## Refinement by a late constraint ("refine, do not restart")
+
+A turn that is not a question but adds a constraint to the question before it is `Resolution.kind = "refinement"`
+(`resolve.late_constraint`): a correction (`Actually, the trip was international.`, `I meant domestic travel.`), a
+statement about what was asked (`This was for international travel.`), or an instruction (`Use the July 2026
+version instead.`), about the same organization, with at least one new content word (the delta). Then
+(`SessionController._refine`, `adaptive/session/refine.py`):
+
+1. **Delta.** `signals.delta` is the version the constraint names and its words that are new to the conversation;
+   `signals.retrieval_query` is the delta followed by the topic of the question(s) it applies to (`international
+   travel reimbursement rules for an employee trip`), not the question replayed and not the conversation rewritten.
+2. **Targeted retrieval.** One retrieval, for that query (the controller's retriever, entity-aligned as any other).
+3. **Delta answer.** One phase 1 answer to the question under the constraint (`Resolution.query`: the question that
+   was asked, with the constraints as its context sentence), from that evidence only.
+4. **Merge.** Each claim of the stored answer v1 is *dropped* when its evidence is no longer valid (a version the
+   constraint deselected, a chunk no longer in the corpus), *replaced* when a claim of the delta states the same
+   thing under the constraint (their texts share at least half of their content words: the same rule with another
+   value or condition; never both), or *kept* with its quotes and citations. Delta claims that replace nothing are
+   added. Citations are renumbered in the order of the text.
+5. **Verification.** The whole of answer v2 is verified again by the unchanged verifier against the evidence it
+   cites; a kept claim that does not pass is dropped, so nothing is in v2 only because it was in v1.
+
+Answer v1 and its turn are read, never changed. The record of the merge (kept, replaced, dropped, added, the
+preserved and the new evidence) is in `signals.refinement`; every claim of v2 carries `refinement`: `kept`,
+`replaces` or `new`; the answer's `strategy` is `refined`. A later follow-up is read with the question and its
+constraints; a later constraint refines answer v2. When the delta finds nothing, the valid claims stand and the gap
+is stated.
+
 ## Resolution rules
 
 * **self_contained**: the first turn, or a question that names its own organization (a corpus organization or

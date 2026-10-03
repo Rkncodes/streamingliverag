@@ -1,6 +1,8 @@
 """Phase 6 cases: questions the existing suites do not contain, where one retrieval of the whole question can miss an
 organization it names. Both come from the phase 2 manual review (2026-09-30), where they stayed single-intent because
-the second clause opens with a scope phrase ("..., and at Rutgers, what ..."), which decomposition does not split.
+the second clause opens with a scope phrase ("..., and at Rutgers, what ..."), which decomposition did not split
+then (it does since the institution-led clause rule was added to adaptive/multi/decompose.py; the recorded results
+of this suite are from before it).
 They were run through the loop while it was being built, so they are a demonstration of the gap it closes, not a
 blind test. Fields as in evaluation/session/cases.py: gold is a list of units, each a list of acceptable refs.
 """

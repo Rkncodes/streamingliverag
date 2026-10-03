@@ -29,7 +29,7 @@ Provider groq, model openai/gpt-oss-20b, prompt grounded-qa-1, settings {'temper
 | g-conditional | conditional | PASS | answered | chapter-11-univers::016-2aca1bfd0e1b |  |
 | g-exception | exception | PASS | answered | 5002-remote-work-p::001-f8a2b978c1f8 |  |
 | g-citation | citation_correctness | PASS | answered | procedures-for-tra::015-aa350b99fc63 |  |
-| g-multichunk | multi_chunk | FAIL | abstained (provider_error) | — | status abstained (expected answered; reason provider_error: RateLimitError: Error code: 429 - {'error': {'message': 'Rate limit reached for model `openai/gpt-oss-20b` in organization `org_01knsvdyyffwbsgj2w7yjrh79r` serv) |
+| g-multichunk | multi_chunk | FAIL | abstained (provider_error) | — | status abstained (expected answered; reason provider_error: RateLimitError: Error code: 429 - {'error': {'message': 'Rate limit reached for model `openai/gpt-oss-20b` in organization `<redacted>` serv) |
 | g-insufficient | insufficient_evidence | PASS | abstained (model_insufficient_evidence) | — |  |
 | g-wrong-org | insufficient_evidence | PASS | abstained (model_insufficient_evidence) | — |  |
 | g-conflict | conflicting_versions | PASS | answered | travel-and-enterta::005-bb1bf7113880, 2026-07-01-travel-::005-73722dbc7d99 |  |
@@ -150,4 +150,3 @@ Accounts must be reviewed at least annually.[1]
 Sources:
 [1] The University of Texas at Austin — INFORMATION RESOURCES USE AND SECURITY POLICY, INFORMATION RESOURCES USE AND SECURITY POLICY > UT-IRUSP Standard 4: Access Management > 4.1 Access Management Requirements, clause 4.1, pp. 38-39 · chunk information-resources-use-and-security-policy-76b891::038-040d5223d33a
 ```
-

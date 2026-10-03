@@ -151,6 +151,24 @@ traced. Without an exporter configured the spans are no-ops. See [telemetry.md](
 
 No answer is evaluated offline, and no live run was made for this phase.
 
+## Early retrieval on an incremental transcript
+
+`adaptive.session.gate.predicts_retrieval(partial)` is the retrieval-intent prediction for a transcript that is still
+arriving: true once the words so far hold two content words (words outside the gate's function-word, opener, request
+and small-talk vocabularies). It never replaces the decision on the complete utterance (`gate.decide`): an utterance
+that trails off still waits, an acknowledgement is still suppressed.
+
+`evaluation/early/run.py` measures it: each utterance is fed word by word on a deterministic clock (a word every
+400 ms). The first prefix that predicts retrieval is resolved against the session and retrieved with the
+controller's retriever: the trigger, with its timestamp. The complete utterance then goes through
+`SessionController.ask`, unchanged. Eligible utterances are the questions of the existing suites for which the
+controller required retrieval; the no-retrieval utterances are in `evaluation/early/cases.py`.
+Results: `evaluation/early/results/offline.md` (`python -m evaluation.early.run`; real stack, no model).
+
+The early retrieval is a pre-fetch. The answer is still grounded in the retrieval of the complete utterance, the
+services take complete utterances, and nothing reuses the pre-fetched evidence yet; the evaluation reports how much
+of the final context the pre-fetch already held.
+
 ## Limitations
 
 * Coverage is per named organization, not per part of the question: a question with two parts about one

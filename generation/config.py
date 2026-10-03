@@ -20,5 +20,9 @@ TEMPERATURE = 0.0
 SEED = 1234
 REASONING_EFFORT = "medium"  # gpt-oss: low | medium | high
 MAX_COMPLETION_TOKENS = 4096
+# gpt-oss spends completion tokens on reasoning before it writes the answer, so a long answer can exhaust 4096 and
+# leave the structured output unfinished (Groq: HTTP 400 json_validate_failed, or finish_reason "length"). That one
+# case is asked again, once, with this budget (the model's own limit on Groq is 65536). Nothing else is retried.
+RETRY_MAX_COMPLETION_TOKENS = 16384
 
 ABSTENTION_TEXT = "The retrieved documents do not contain enough evidence to answer this question."

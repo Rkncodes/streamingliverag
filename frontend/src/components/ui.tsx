@@ -3,7 +3,7 @@
 import { AlertTriangle, Info, OctagonAlert } from "lucide-react";
 import type { ReactNode } from "react";
 
-export type Tone = "ok" | "warn" | "err" | "info" | "neutral";
+export type Tone = "ok" | "warn" | "err" | "neutral";
 
 export function StatusBadge({ tone = "neutral", plain, children }: { tone?: Tone; plain?: boolean; children: ReactNode }) {
   return <span className={`badge ${tone === "neutral" ? "" : tone} ${plain ? "plain" : ""}`}>{children}</span>;
@@ -18,18 +18,6 @@ export function Section({ title, aside, children }: { title: string; aside?: Rea
       </h2>
       {children}
     </section>
-  );
-}
-
-export function ViewHead({ title, children, actions }: { title: string; children?: ReactNode; actions?: ReactNode }) {
-  return (
-    <header className="view-head">
-      <div>
-        <h1>{title}</h1>
-        {children ? <p>{children}</p> : null}
-      </div>
-      {actions ? <div className="actions">{actions}</div> : null}
-    </header>
   );
 }
 
@@ -58,16 +46,6 @@ export function Note({ tone = "info", children }: { tone?: "info" | "warn" | "er
     <div className={`note ${tone === "info" ? "" : tone}`} role={tone === "err" ? "alert" : undefined}>
       <Icon aria-hidden />
       <div>{children}</div>
-    </div>
-  );
-}
-
-export function EmptyState({ title, children, action }: { title: string; children?: ReactNode; action?: ReactNode }) {
-  return (
-    <div className="empty">
-      <h3>{title}</h3>
-      {children ? <div>{children}</div> : null}
-      {action}
     </div>
   );
 }
@@ -106,18 +84,5 @@ export function Raw({ label = "Technical details", value }: { label?: string; va
     <Disclosure summary={label}>
       <pre className="raw">{JSON.stringify(value, null, 2)}</pre>
     </Disclosure>
-  );
-}
-
-export function Counts({ items }: { items: [label: string, value: ReactNode][] }) {
-  return (
-    <div className="counts">
-      {items.map(([label, value]) => (
-        <div key={label}>
-          <div className="v">{value}</div>
-          <div className="k">{label}</div>
-        </div>
-      ))}
-    </div>
   );
 }

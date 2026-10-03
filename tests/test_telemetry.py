@@ -340,10 +340,46 @@ def test_orchestrator_span():
     assert {k: v for k, v in first_span.attributes.items() if not k.startswith(("adaptiverag.", "correlation"))} == {
         "job.status": "completed", "session.turn_index": 0, "session.continued": False,
         "orchestrator.resolution": "self_contained", "orchestrator.answer_status": "answered",
-        "orchestrator.citation_count": len(first["citations"])}
+        "orchestrator.citation_count": len(first["citations"]),
+        # the decision and the lineage of the answer, from the stored turn
+        "orchestrator.decision": "retrieve", "orchestrator.retrieval_required": True,
+        "orchestrator.strategy": "delegate", "orchestrator.claim_count": 1, "orchestrator.answer_version": 1}
     assert first_span.attributes["adaptiverag.service"] == "adaptiverag-orchestrator"
     assert (second_span.attributes["session.turn_index"], second_span.attributes["session.continued"],
             second_span.attributes["orchestrator.resolution"]) == (1, True, "follow_up")
+    assert second_span.attributes["session.anchor_turn_index"] == 0  # the turn the follow-up was resolved against
+
+
+def test_orchestrator_span_records_the_decision_and_the_answer_version_of_every_kind_of_turn():
+    from tests.test_session_refine import CHUNKS as REFINE_CHUNKS, LATE, Q1, model
+    from tests.test_multi_intent_controller import stack as keyword_stack
+    from tests.test_session import ALIASES as REFINE_ALIASES
+    from generation.providers import StubProvider
+
+    rig = Rig(keyword_stack(*REFINE_CHUNKS), StubProvider(model), REFINE_ALIASES)
+    turns = [Q1, LATE, "Give me that in two bullet points.", "I meant a student trip.", "Thanks, that's all.",
+             "What about the..."]
+    with capture() as spans:
+        bodies = [rig.query("s", q).json() for q in turns]
+    got = [{k: s.attributes.get(k) for k in ("orchestrator.resolution", "orchestrator.decision",
+                                             "orchestrator.retrieval_required", "session.anchor_turn_index",
+                                             "orchestrator.strategy", "orchestrator.answer_version")}
+           for s in named(spans, "orchestrator.execute")]
+    assert got == [
+        dict(zip(got[0], ("self_contained", "retrieve", True, None, "delegate", 1))),
+        dict(zip(got[0], ("refinement", "refine", True, 0, "refined", 2))),  # answer v2 of the question of turn 0
+        dict(zip(got[0], ("presentation", "presentation", False, 1, "refined", 2))),  # the same answer, laid out again
+        dict(zip(got[0], ("refinement", "refine", True, 1, "refined", 3))),
+        dict(zip(got[0], ("suppress", "suppress", False, 3, None, None))),
+        dict(zip(got[0], ("wait", "wait", False, 3, None, None)))]
+    # the citations of a turn are found from its span: session id and turn index name the stored turn
+    stored = rig.api.get("/sessions/s").json()["turns"]
+    for span, body in zip(named(spans, "orchestrator.execute"), bodies):
+        turn = stored[span.attributes["session.turn_index"]]
+        assert span.attributes["adaptiverag.session_id"] == "s" and span.attributes["correlation_id"] == body["job_id"]
+        assert [c["chunk_id"] for c in (turn["answer"] or {}).get("citations", [])] == [c["chunk_id"] for c in body["citations"]]
+        assert span.attributes["orchestrator.citation_count"] == len(body["citations"])
+        assert span.start_time and span.end_time >= span.start_time  # execution timestamps
 
 
 # ---------------------------------------------------------------- retrieval and its rounds
@@ -411,13 +447,58 @@ def test_generation_span(spans):
         "correlation_id": "j-2", "adaptiverag.job_id": "j-2", "adaptiverag.session_id": "s-2",
         "generation.provider": provider.name, "generation.model": provider.model,
         "generation.evidence_count": len(req.evidence), "generation.status": "answered",
-        "generation.citation_count": len(answer.citations)}
+        "generation.citation_count": len(answer.citations), "generation.claim_count": len(answer.claims),
+        "generation.verification": "accepted", "generation.verification.problem_count": 0,
+        "generation.llm_calls": 1}  # the stub reports no token usage: no token attribute is invented
     spans.clear()
     abstained = GenerationService(provider).handle(GenerationRequest(question="What is the parking fee?", evidence=[]))
     s = one(spans, "generation.execute")
     assert (s.attributes["generation.status"], s.attributes["generation.abstention_reason"]) == (
         "abstained", abstained.answer.abstention_reason)
+    assert (s.attributes["generation.verification"], s.attributes["generation.llm_calls"]) == ("not_run", 0)
     assert s.status.status_code is StatusCode.UNSET  # an abstention is an answer, not an error
+
+
+def test_generation_span_records_token_usage_and_the_verification_outcome(spans):
+    from generation.providers import ProviderError, ProviderResponse
+
+    class Metered:
+        name, model = "fake", "fake-1"
+
+        def __init__(self, output, usage):
+            self.output, self.usage = output, usage
+
+        def complete(self, system, user, schema):
+            if isinstance(self.output, Exception):
+                raise self.output
+            return ProviderResponse(text=json.dumps(self.output), provider=self.name, model=self.model, usage=self.usage)
+
+    stack, provider = session_setup()
+    retrieval = RetrievalService(stack, SESSION_ALIASES).handle(RetrievalRequest(query=Q_FEB))
+    usage = {"prompt_tokens": 1200, "completion_tokens": 340, "total_tokens": 1540, "total_time": 0.4}
+    spans.clear()
+    req = GenerationRequest(question=Q_FEB, evidence=retrieval.evidence, job_id="j-3")
+    text = retrieval.evidence[0].chunk.text
+    cases = [
+        ({"status": "answered", "claims": [{"text": text, "sources": ["S1"], "quotes": [text]}], "not_in_sources": [],
+          "abstention_reason": ""}, "answered", "accepted", 0),
+        ({"status": "answered", "claims": [{"text": "Charges are due in 45 days", "sources": ["S1"], "quotes": [text]}],
+          "not_in_sources": [], "abstention_reason": ""}, "abstained", "rejected", 1),
+        ({"status": "insufficient_evidence", "claims": [], "not_in_sources": [], "abstention_reason": "x"}, "abstained",
+         "accepted", 0),
+    ]
+    for output, status, verification, problems in cases:
+        GenerationService(Metered(output, usage)).handle(req)
+        s = one(spans, "generation.execute")
+        assert (s.attributes["generation.status"], s.attributes["generation.verification"],
+                s.attributes["generation.verification.problem_count"]) == (status, verification, problems)
+        assert (s.attributes["generation.llm_calls"], s.attributes["generation.tokens.prompt"],
+                s.attributes["generation.tokens.completion"], s.attributes["generation.tokens.total"]) == (1, 1200, 340, 1540)
+        spans.clear()
+    GenerationService(Metered(ProviderError("429", 429), usage)).handle(req)  # a provider failure: nothing to verify
+    s = one(spans, "generation.execute")
+    assert (s.attributes["generation.abstention_reason"], s.attributes["generation.verification"]) == ("provider_error", "not_run")
+    assert s.attributes["generation.llm_calls"] == 1 and "generation.tokens.total" not in s.attributes
 
 
 # ---------------------------------------------------------------- MCP tools and the database

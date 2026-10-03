@@ -2,9 +2,9 @@
 #
 # Used only by adaptive.multi.decompose (AdaptiveRAG phase 2) to tell whether a clause of a multi-intent question
 # names its organization and, if it does not, which organization to carry over from the other clauses. Full names
-# (the values below) are recognized as they are. Only short forms that occur in the phase 2 cases
-# (evaluation/multi_intent/cases.py) or the integration questions are listed; every value must be an organization
-# of the corpus (checked by tests/test_multi_intent_decompose.py against the chunks).
+# (the values below) are recognized as they are. Only short forms that occur in the evaluation questions (the phase 2
+# cases, the integration questions, the retrieval benchmark) are listed; every value must be an organization of the
+# corpus (checked by tests/test_multi_intent_decompose.py against the chunks).
 
 [aliases]
 "UConn" = "University of Connecticut"
@@ -14,3 +14,4 @@
 "Stanford" = "Stanford University"
 "Oregon State" = "Oregon State University"
 "Yale" = "Yale University"
+"McGill" = "McGill University"

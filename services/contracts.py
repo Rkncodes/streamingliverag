@@ -160,9 +160,9 @@ class QueryRequest(_Contract):
 
 
 class ResolutionView(_Contract):
-    kind: str  # self_contained | follow_up | unresolved
+    kind: str  # self_contained | follow_up | unresolved | wait | suppress | presentation
     reason: str
-    query: str  # what the pipeline received (the rewritten query of a follow-up)
+    query: str  # what the pipeline received (the rewritten query of a follow-up; "" when nothing was retrieved)
     temporal: str  # the temporal constraint in effect
     organizations: list[str]
     anchor: int | None
@@ -176,7 +176,7 @@ class QueryResponse(_Contract):
     status: Literal["completed", "failed"]
     error: dict | None = None
     turn_index: int | None = None
-    answer_status: str | None = None  # answered | abstained
+    answer_status: str | None = None  # answered | abstained | waiting | suppressed
     text: str | None = None
     citations: list[dict] = []  # generation.answer.Citation fields
     abstention_reason: str | None = None
@@ -194,7 +194,7 @@ class QueryResponse(_Contract):
         return cls(request_id=request_id, job_id=job_id, session_id=session_id, status="completed",
                    turn_index=turn.index, answer_status=turn.status, text=turn.text,
                    citations=[asdict(c) for c in turn.citations],
-                   abstention_reason=a.abstention_reason if a else "unresolved_reference",
+                   abstention_reason=turn.abstention_reason,
                    resolution=ResolutionView(kind=r.kind, reason=r.reason, query=r.query, temporal=r.temporal,
                                              organizations=r.organizations, anchor=r.anchor),
                    strategy=a.strategy if a else None,

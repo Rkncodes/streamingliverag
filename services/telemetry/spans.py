@@ -44,6 +44,9 @@ ATTRIBUTES = frozenset({
     # orchestrator.execute
     "job.status", "session.turn_index", "session.continued", "orchestrator.resolution",
     "orchestrator.answer_status", "orchestrator.abstention_reason", "orchestrator.citation_count",
+    # orchestrator.execute: the turn's decision and the lineage of its answer (read from the stored turn)
+    "orchestrator.decision", "orchestrator.retrieval_required", "orchestrator.strategy", "orchestrator.claim_count",
+    "session.anchor_turn_index", "orchestrator.answer_version",
     # retrieval.execute
     "retrieval.mode", "retrieval.k", "retrieval.max_rounds", "retrieval.evidence_count", "retrieval.rounds",
     "retrieval.stop_reason", "retrieval.temporal.kind",
@@ -54,7 +57,9 @@ ATTRIBUTES = frozenset({
     "retrieval.coverage.decision", "retrieval.coverage.achieved",
     # generation.execute
     "generation.provider", "generation.model", "generation.evidence_count", "generation.status",
-    "generation.abstention_reason", "generation.citation_count",
+    "generation.abstention_reason", "generation.citation_count", "generation.claim_count",
+    "generation.verification", "generation.verification.problem_count", "generation.llm_calls",
+    "generation.tokens.prompt", "generation.tokens.completion", "generation.tokens.total",
     # mcp.tool.execute
     "mcp.tool.name", "mcp.error.code",
     # db.query

@@ -12,10 +12,10 @@ Not implemented: a React frontend, durable job state.
 | span | where | kind | attributes (besides the common ones) |
 |---|---|---|---|
 | `<METHOD> <route>`: `POST /query`, `POST /retrieve`, `POST /generate` | `TracingMiddleware` on the three FastAPI apps | server | `http.request.method`, `http.route`, `http.response.status_code` |
-| `orchestrator.execute` | `OrchestratorWorker.handle`: one job | internal | `job.status`, `session.turn_index`, `session.continued`, `orchestrator.resolution`, `orchestrator.answer_status`, `orchestrator.abstention_reason`, `orchestrator.citation_count` |
+| `orchestrator.execute` | `OrchestratorWorker.handle`: one job | internal | `job.status`, `session.turn_index`, `session.continued`, `orchestrator.resolution`, `orchestrator.answer_status`, `orchestrator.abstention_reason`, `orchestrator.citation_count`; from the stored turn: `orchestrator.decision` (`retrieve`, `refine`, `wait`, `suppress`, `presentation`), `orchestrator.retrieval_required`, `session.anchor_turn_index` (the turn it was resolved against, refines or re-presents), `orchestrator.strategy`, `orchestrator.claim_count`, `orchestrator.answer_version` (1 for a question's first answer, +1 per refinement; a presentation has the version of the answer it lays out) |
 | `retrieval.execute` | `RetrievalService.handle` | internal | `retrieval.mode`, `retrieval.k`, `retrieval.max_rounds`, `retrieval.evidence_count`, `retrieval.temporal.kind`, `retrieval.rounds`, `retrieval.stop_reason` |
 | `retrieval.round` | each round of the phase 6 loop (`services/retrieval/rounds.py`) | internal | `retrieval.round.number`, `.strategy`, `.retrieved_count`, `.new_count`, `.excluded_count`, `.retained_count`, `.context_count`, `.promoted_count`, `.decision` (`refine` \| `stop`), `retrieval.coverage.decision`, `retrieval.coverage.achieved`, `retrieval.stop_reason` (last round) |
-| `generation.execute` | `GenerationService.handle` | internal | `generation.provider`, `generation.model`, `generation.evidence_count`, `generation.status`, `generation.abstention_reason`, `generation.citation_count` |
+| `generation.execute` | `GenerationService.handle` | internal | `generation.provider`, `generation.model`, `generation.evidence_count`, `generation.status`, `generation.abstention_reason`, `generation.citation_count`, `generation.claim_count`, `generation.verification` (`accepted`, `rejected`, `not_run`), `generation.verification.problem_count`, `generation.llm_calls`, `generation.tokens.prompt` / `.completion` / `.total` (summed over the request's model calls, as the provider reports them; absent when it reports none) |
 | `mcp.tool.execute` | every call of a known MCP tool (`services/mcp/server.py`) | internal | `mcp.tool.name`, `mcp.error.code` |
 | `db.query` | `MetadataRepository.query`: one named query, with its connection | internal | `db.system.name` = `postgresql`, `db.operation.name` = `SELECT`, `db.query.name`, `db.namespace` (the schema), `db.response.returned_rows`, `db.query.truncated` |
 
@@ -95,6 +95,19 @@ Every span carries the application's ids as attributes: `adaptiverag.request_id`
 id every downstream call of the job carries), otherwise the request id. Searching a trace backend for
 `correlation_id = <job id>` finds every span of the job, in whatever trace. `Span.trace_id` / `Span.span_id` exist
 for logs; no application logic uses them, and no contract changed.
+
+## Where each required field is
+
+| Field | Where |
+|---|---|
+| Execution timestamps | every span's start and end time; `retrieval.round` spans time each round |
+| Request / correlation id | `correlation_id`, `adaptiverag.request_id` / `job_id` / `session_id` on every span |
+| Retrieval trigger | `orchestrator.decision`, `orchestrator.retrieval_required`, `orchestrator.resolution`; each retrieval is a `retrieval.execute` span with `retrieval.mode`, `.rounds`, `.stop_reason` |
+| Citations | `orchestrator.citation_count`, `generation.citation_count` on the spans. The cited chunk and document ids are not span attributes (see below): they are in the stored turn (`GET /sessions/{id}`), which the span names by `adaptiverag.session_id` + `session.turn_index`, and in the job result with the same `job_id` |
+| Answer version lineage | `session.turn_index`, `session.anchor_turn_index`, `orchestrator.strategy`, `orchestrator.answer_version` |
+| Verification outcome | `generation.verification`, `generation.verification.problem_count`, `generation.abstention_reason` |
+| Token cost | `generation.tokens.prompt` / `.completion` / `.total`, `generation.llm_calls` per generation request; summed per job by `correlation_id`. Tokens only: no price is configured |
+| MCP / database | `mcp.tool.execute`, `db.query` |
 
 ## What is never recorded
 

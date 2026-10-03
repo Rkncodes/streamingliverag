@@ -38,10 +38,11 @@ from adaptive.controller import AdaptiveAnswer, AdaptiveController
 from generation import config as C
 from generation.answer import NOT_IN_SOURCES_PREFIX, Citation
 from generation.context import assemble
-from generation.pipeline import Retrieval, RetrievalStack, retrieve
+from generation.pipeline import RETRIEVE_K, Retrieval, RetrievalStack, retrieve
 from generation.providers import LLMProvider
 
-from .decompose import Decomposition, decompose, load_aliases
+from .decompose import Decomposition, Intent, decompose, load_aliases, mentions
+from .entity import AlignedRetriever
 from .fusion import IntentRetrieval, associated, covered, fuse, fused_retrieval, intents_in, retrieve_intent
 
 DELEGATE, FUSED, PER_INTENT, NO_SUPPORTED_INTENT = "delegate", "fused", "per_intent", "no_supported_intent"
@@ -100,14 +101,27 @@ class MultiIntentController:
     def decompose(self, query: str) -> Decomposition:
         return decompose(query, self.organizations, self.aliases)
 
+    def aligned(self, stack: RetrievalStack, query: str, k: int = RETRIEVE_K) -> Retrieval:
+        """`self.retrieve`, entity-aligned (adaptive.multi.entity): a retrieval whose evidence names a different thing
+        than the one the query names loses those chunks; any other retrieval is the retriever's, untouched."""
+        return AlignedRetriever(self.retrieve, self.organizations, self.aliases)(stack, query, k)
+
+    def answer(self, question: str, r: Retrieval, strategy: str, reason: str) -> MultiIntentAnswer:
+        """Phase 1 on a retrieval the caller made (phase 3 refinement: the targeted retrieval of a late constraint),
+        for `question` as one intent. Nothing is retrieved here; the record is the one `run` makes for one intent."""
+        d = Decomposition(question, [Intent(0, " ".join(question.split()), question,
+                                            mentions(question, self.organizations, self.aliases))], False, reason)
+        r = replace(r, query=question)  # what the model is asked; the caller records what was retrieved for
+        return self._from_phase1(d, strategy, reason, self.phase1.answer(r), [IntentRetrieval(d.intents[0], r)], r)
+
     def run(self, query: str) -> MultiIntentAnswer:
         d = self.decompose(query)
-        r0 = self.retrieve(self.stack, query)
+        r0 = self.aligned(self.stack, query)
         if not d.multi:
             runs = [IntentRetrieval(d.intents[0], r0)]
             return self._from_phase1(d, DELEGATE, f"single intent ({d.reason}): phase 1 unchanged",
                                      self.phase1.answer(r0), runs, r0)
-        runs = [retrieve_intent(self.stack, i, self.retrieve) for i in d.intents]
+        runs = [retrieve_intent(self.stack, i, self.aligned) for i in d.intents]
         ctx0 = assemble(r0.evidence)  # the context phase 1 assembles for the whole question
         uncovered = [x.intent.index for x in runs if x.admissible and not covered(x, ctx0)]
         # organization boundary: the whole question's context may hold chunks retrieved only because of a clause about
@@ -240,7 +254,7 @@ def _intent_records(runs: list[IntentRetrieval], r0: Retrieval, claims: list[dic
         status = "answered" if cited else ("unsupported" if not x.admissible else "not_answered")
         out.append({"index": k, "text": x.intent.text, "sub_query": x.intent.sub_query,
                     "organizations": x.intent.organizations, "carried": x.intent.carried,
-                    "outside_corpus": x.intent.outside_corpus,
+                    "outside_corpus": x.intent.outside_corpus, "topic": x.intent.topic,
                     "temporal_intent": x.retrieval.resolution.intent.kind,
                     "selected_versions": x.retrieval.question_versions, "best_rerank": x.best_rerank,
                     "admissible": x.admissible, "top_chunk": x.top.chunk_id if x.top else None,

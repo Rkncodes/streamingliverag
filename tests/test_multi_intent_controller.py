@@ -340,6 +340,87 @@ def test_to_dict_is_json_serializable():
     assert d["strategy"] == FUSED and d["citation_intents"] and d["phase1"][0]["decision"]["strategy"] == SINGLE
 
 
+# ---------------------------------------------------------------- one intent per organization: evidence stays apart
+
+A_ADV = mk("adv", "Alpha travel advance requirements: request an advance before departure.", org="Alpha University",
+           doc="doc-alpha")
+B_CARD = mk("card", "Beta travel card rules: the card pays for airfare only.", org="Beta University", doc="doc-beta")
+G_NON = mk("non", "Gamma non-travel advance policy: advances need approval by a dean.", org="Gamma University",
+           doc="doc-gamma")
+# another organization's chunks that match every part of the question better than the two smaller parts' own evidence
+G_NOTES = [mk(f"g{i}", f"Travel advance requirements and travel card rules notice g{i}.", org="Gamma University",
+              doc="doc-gamma") for i in range(6)]
+LIST_STACK = (*G_NOTES, G_NON, A_ADV, B_CARD)
+Q_LIST = ("What are Alpha University's travel advance requirements, Beta University's travel card rules, and Gamma "
+          "University's non-travel advance policy?")
+LIST_ORGS = ["Alpha University", "Beta University", "Gamma University"]
+
+
+def list_script(system, user):
+    claims = [(text, [label_of(user, chunk)], [quote]) for chunk, text, quote in [
+        (A_ADV, "Alpha requires requesting an advance before departure", "request an advance before departure"),
+        (B_CARD, "The Beta card pays for airfare only", "the card pays for airfare only"),
+        (G_NON, "Gamma non-travel advances need approval by a dean", "advances need approval by a dean"),
+    ] if label_of(user, chunk)]
+    return answered(*claims) if claims else insufficient_out()
+
+
+def test_a_list_question_retrieves_and_answers_each_organization_from_its_own_evidence():
+    st = stack(*LIST_STACK)
+    a1, p1, a2, p2 = run_both(st, list_script, Q_LIST)
+    # the failure this fixes: the whole question's context holds one organization's chunks, so phase 1 answers one part
+    assert A_ADV.chunk_id not in p1.calls[0][1] and B_CARD.chunk_id not in p1.calls[0][1]
+    assert a2.decomposition["multi"] and [i["organizations"] for i in a2.intents] == [[o] for o in LIST_ORGS]
+    assert [i["topic"] for i in a2.intents] == ["travel advance requirements", "travel card rules",
+                                                "non-travel advance policy"]
+    by_id = {c.chunk_id: c for c in LIST_STACK}
+    for rec, org in zip(a2.intents, LIST_ORGS):  # one retrieval per intent, for its own sub-query, kept to its organization
+        raw = [e.chunk for e in retrieve(st, rec["sub_query"]).evidence]
+        assert {c.organization for c in raw} > {org}  # the retrieval itself also returned other organizations' chunks
+        assert rec["retrieved"] == [c.chunk_id for c in raw if c.organization == org]
+        assert rec["retrieved"] and {by_id[cid].organization for cid in rec["retrieved"]} == {org}
+        assert rec["admissible"] and by_id[rec["top_chunk"]].organization == org
+    assert a2.strategy == FUSED and len(p2.calls) == 1 and question_of(p2.calls[0][1]).endswith(Q_LIST)
+    assert all(c.chunk_id in p2.calls[0][1] for c in (A_ADV, B_CARD, G_NON))  # every intent's evidence in the context
+    # every chunk shown belongs to the intent(s) of its own organization, and to no other
+    for cid, entries in a2.evidence_intents.items():
+        assert {x["intent"] for x in entries} == {LIST_ORGS.index(by_id[cid].organization)}
+    assert a2.status == "answered" and [cl["intents"] for cl in a2.claims] == [[0], [1], [2]]
+    assert [i["status"] for i in a2.intents] == ["answered"] * 3
+    cited = {c.number: c.organization for c in a2.citations}
+    assert {k: [cited[n] for n in i["citations"]] for k, i in enumerate(a2.intents)} == {
+        k: [org] for k, org in enumerate(LIST_ORGS)}
+
+
+def test_an_intent_that_names_its_organization_keeps_only_that_organizations_chunks():
+    st = stack(*LIST_STACK)
+    intents = decompose(Q_LIST, set(LIST_ORGS), ALIASES).intents
+    raw = retrieve(st, intents[0].sub_query)
+    run = retrieve_intent(st, intents[0])
+    kept = [e for e in raw.evidence if e.chunk.organization == "Alpha University"]
+    assert run.retrieval.evidence == kept and len(kept) < len(raw.evidence)  # same order, ranks and scores
+    assert (run.retrieval.query, run.retrieval.resolution) == (raw.query, raw.resolution)  # nothing else is touched
+    assert run.top.chunk_id == A_ADV.chunk_id
+
+
+def test_an_intent_without_evidence_of_its_own_organization_is_unsupported_not_answered_from_another():
+    st = stack(*G_NOTES, G_NON, B_CARD)  # nothing of Alpha University in the corpus's chunks
+    ctl = MultiIntentController(st, StubProvider(list_script), ALIASES)
+    ctl.organizations = set(LIST_ORGS)  # Alpha is an organization of the corpus whose chunks do not match
+    a = ctl.run(Q_LIST)
+    alpha = a.intents[0]
+    assert alpha["retrieved"] == [] and not alpha["admissible"] and alpha["status"] == "unsupported"
+    assert all(x["intent"] != 0 for xs in a.evidence_intents.values() for x in xs)
+    assert [i["status"] for i in a.intents[1:]] == ["answered", "answered"] and all(0 not in cl["intents"] for cl in a.claims)
+
+
+def test_an_intent_that_names_no_organization_keeps_its_whole_retrieval():
+    st = stack(DEADLINE, PENALTY, *FILLERS, BIDS)
+    for intent in decompose(Q_TWO, {"Test University", "Other University"}, ALIASES).intents:
+        assert intent.organizations == []
+        assert retrieve_intent(st, intent).retrieval.evidence == retrieve(st, intent.sub_query).evidence
+
+
 # ---------------------------------------------------------------- organization boundary
 
 BIDS = mk("bids", "Competitive bids are required for purchases over 50000 at this university.", org="Other University",

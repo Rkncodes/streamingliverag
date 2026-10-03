@@ -5115,7 +5115,7 @@
      {
       "wait_s": 15.0,
       "retry_after": 2.0,
-      "error": "RateLimitError: Error code: 429 - {'error': {'message': 'Rate limit reached for model `openai/gpt-oss-20b` in organization `org_01knsvdyyffwbsgj2w7yjrh79r` service tier `on_demand` on tokens per minut"
+      "error": "RateLimitError: Error code: 429 - {'error': {'message': 'Rate limit reached for model `openai/gpt-oss-20b` in organization `<redacted>` service tier `on_demand` on tokens per minut"
      }
     ],
     "rate_limit_wait_s": 15.0,

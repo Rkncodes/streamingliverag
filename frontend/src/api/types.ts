@@ -95,6 +95,7 @@ export interface Claim {
   citations: number[];
   quotes?: string[];
   intents?: number[];
+  version_label?: string; // a claim of an answer split by document version
 }
 
 export interface Phase1Answer {
@@ -106,7 +107,7 @@ export interface Phase1Answer {
   claims: Claim[];
   abstention_reason: string | null;
   abstention_detail: string;
-  sources_considered: { label: string; chunk_id: string; retrieval_rank?: number; duplicate_of?: string | null }[];
+  sources_considered: { label: string; chunk_id: string; retrieval_rank?: number; duplicate_of?: string | null; version?: string }[];
   model: string | null;
   provider: string | null;
   prompt_version: string;
@@ -122,7 +123,7 @@ export interface MultiIntentAnswer {
   text: string;
   strategy: string;
   reason: string;
-  decomposition: { question: string; intents: DecomposedIntent[]; multi: boolean; reason: string; flags: string[] };
+  decomposition?: { question: string; intents: DecomposedIntent[]; multi: boolean; reason: string; flags: string[] };
   intents: IntentRecord[];
   citations: Citation[];
   claims: Claim[];

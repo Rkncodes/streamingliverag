@@ -5,6 +5,8 @@
   fusion = fuse(runs)                                                  # Fusion(evidence, intents_of)
   r = fused_retrieval(r0, fusion)                                      # a Retrieval for AdaptiveController.answer
 
+retrieve_intent  the retrieval of one intent's sub-query; an intent that names its organizations keeps only their
+            chunks from it (the organization boundary between intents).
 admissible  the intent names no institution outside the corpus (decompose.outside_corpus: its retrieval would
             only find other organizations' evidence), and its best cross-encoder score is >= MIN_RERANK_LOGIT, the
             answerer's own low-relevance threshold (without a reranker: the intent retrieved anything).
@@ -59,8 +61,20 @@ class Fusion:
 
 
 def retrieve_intent(stack: RetrievalStack, intent: Intent, retriever=retrieve) -> IntentRetrieval:
-    """`retriever`: generation.pipeline.retrieve, or a drop-in with its signature (phase 6 iterative retrieval)."""
-    return IntentRetrieval(intent, retriever(stack, intent.sub_query))
+    """`retriever`: generation.pipeline.retrieve, or a drop-in with its signature (phase 6 iterative retrieval).
+
+    Organization boundary between intents: an intent whose own words name organizations keeps, of what its retrieval
+    returned, only their chunks (and chunks whose organization is unknown), in the retrieval's order and with its
+    ranks and scores. Another organization's chunk is never that intent's evidence, however it ranked, so it cannot
+    reach the context or a citation through this intent. An organization carried from another clause is a hint in
+    the sub-query only, and an intent that names none keeps everything. The retrieval itself is not changed."""
+    r = retriever(stack, intent.sub_query)
+    if intent.organizations:
+        own = set(intent.organizations)
+        kept = [e for e in r.evidence if e.chunk.organization is None or e.chunk.organization in own]
+        if len(kept) != len(r.evidence):
+            r = replace(r, evidence=kept)
+    return IntentRetrieval(intent, r)
 
 
 def covered(run: IntentRetrieval, ctx: Context) -> bool:

@@ -10,7 +10,7 @@
 import type { ReactNode } from "react";
 import type { Exchange } from "../api/client";
 import { ms, type Inspection, type Run } from "../lib/model";
-import { Id, StatusBadge } from "./ui";
+import { Id } from "./ui";
 
 export interface SpanRow {
   depth: number;
@@ -24,22 +24,21 @@ export interface SpanRow {
   exported?: boolean | "off";
 }
 
-function Row({ row, last }: { row: SpanRow; last: boolean }) {
-  const branch = row.depth === 0 ? "" : `${"   ".repeat(row.depth - 1)}${last ? "└─ " : "├─ "}`;
+function Row({ row }: { row: SpanRow }) {
+  const id = row.spanId ? `span ${row.spanId}` : row.exported === "off" ? "not recorded" : row.exported ? "span id not exposed" : "";
   return (
-    <div className="span">
-      <div className="label">
-        <span className="branch">{branch}</span>
+    <div className="span" style={{ paddingLeft: 12 + row.depth * 16 }}>
+      <div className="span-line">
+        <span className={`span-dot ${row.status ?? ""}`} aria-hidden />
         <span className="op">{row.op}</span>
-        <span className="attrs">{row.attrs}</span>
+        {row.duration != null ? (
+          <span className="dur" title="Round trip measured in this browser">
+            {ms(row.duration)}
+          </span>
+        ) : null}
       </div>
-      <div className="meta">
-        <span>{row.service}</span>
-        {row.status ? <StatusBadge tone={row.status === "ok" ? "ok" : "err"}>{row.status === "ok" ? "ok" : "error"}</StatusBadge> : null}
-        <span title={row.duration != null ? "Round trip measured in this browser" : undefined}>{row.duration != null ? ms(row.duration) : ""}</span>
-        <span title={row.spanId ? "Span id from the service's traceresponse header" : "The span's id is in the exporter; no response carries it"}>
-          {row.spanId ? `span ${row.spanId}` : row.exported === "off" ? "not recorded" : row.exported ? "span id not exposed" : ""}
-        </span>
+      <div className="span-meta">
+        {[row.service, row.attrs, id].filter(Boolean).join(" · ")}
       </div>
     </div>
   );
@@ -47,25 +46,18 @@ function Row({ row, last }: { row: SpanRow; last: boolean }) {
 
 export function TraceTree({ title, traceId, note, rows, badge }: { title: string; traceId: string | null; note?: ReactNode; rows: SpanRow[]; badge?: ReactNode }) {
   return (
-    <div className="panel" style={{ marginBottom: 12 }}>
+    <div className="trace">
       <div className="trace-head">
-        <h3>{title}</h3>
+        <strong>{title}</strong>
         {badge}
-        <span style={{ marginLeft: "auto" }} className="muted">
-          trace id {traceId ? <Id>{traceId}</Id> : <span className="faint">not exposed</span>}
-        </span>
       </div>
-      <div className="trace">
-        {rows.map((row, i) => {
-          const later = rows.slice(i + 1).find((r) => r.depth <= row.depth);
-          return <Row key={i} row={row} last={!later || later.depth < row.depth} />;
-        })}
+      <div className="trace-id">trace id {traceId ? <Id>{traceId}</Id> : <span className="faint">not exposed</span>}</div>
+      <div className="trace-rows">
+        {rows.map((row, i) => (
+          <Row key={i} row={row} />
+        ))}
       </div>
-      {note ? (
-        <div className="pad muted" style={{ borderTop: "1px solid var(--border-subtle)", fontSize: 12.5, padding: "9px 14px" }}>
-          {note}
-        </div>
-      ) : null}
+      {note ? <p className="faint small">{note}</p> : null}
     </div>
   );
 }
@@ -118,7 +110,7 @@ export function jobRows(run: Run): SpanRow[] {
   if (!r || r.status !== "completed" || r.resolution?.kind === "unresolved") return rows;
   rows.push({ depth: 1, op: "POST /retrieve → retrieval.execute", service: "adaptiverag-retrieval", attrs: "one per retrieval the controllers make; count not returned by the API", exported: true });
   if (answer) {
-    answer.phase1.forEach((part) => {
+    (answer.phase1 ?? []).forEach((part) => {
       rows.push({ depth: 1, op: "POST /generate → generation.execute", service: "adaptiverag-generation", attrs: `generation.status=${part.status}${part.abstention_reason ? ` · ${part.abstention_reason}` : ""}`, status: "ok", exported: true });
     });
   } else {

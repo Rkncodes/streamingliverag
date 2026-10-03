@@ -13,13 +13,18 @@ from dataclasses import asdict, dataclass, field
 from adaptive.multi.controller import MultiIntentAnswer
 
 SELF_CONTAINED, FOLLOW_UP, UNRESOLVED = "self_contained", "follow_up", "unresolved"
+REFINEMENT = "refinement"  # a late constraint on an answered question: the earlier answer is refined, not redone
+# turns that are not a question to the corpus (adaptive.session.gate): never retrieved for
+WAIT, SUPPRESS, PRESENTATION = "wait", "suppress", "presentation"
+NOT_A_QUESTION = (WAIT, SUPPRESS, PRESENTATION)
 UNRESOLVED_TEXT = ("This question refers to earlier context that cannot be resolved safely. Please ask it again with "
                    "the organization and the topic.")
+WAITING_TEXT = "Waiting for the rest of the question."  # a state, not an answer; a suppressed turn has no text at all
 
 
 @dataclass
 class Resolution:
-    kind: str  # self_contained | follow_up | unresolved
+    kind: str  # self_contained | follow_up | refinement | unresolved | wait | suppress | presentation
     reason: str
     query: str  # what the multi-intent controller receives ("" when unresolved)
     topic: list[str] = field(default_factory=list)  # the user questions a later follow-up is read with
@@ -34,16 +39,28 @@ class Turn:
     index: int
     question: str  # verbatim
     resolution: Resolution
-    answer: MultiIntentAnswer | None  # None: unresolved (no retrieval, no model call)
+    answer: MultiIntentAnswer | None  # None: unresolved, wait or suppress (no retrieval, no model call)
     reused_citations: list[str] = field(default_factory=list)  # cited chunks the anchor turn cited as well
 
     @property
     def status(self) -> str:
-        return self.answer.status if self.answer else "abstained"
+        """answered | abstained, or, for a turn that is not a question: waiting | suppressed."""
+        if self.answer:
+            return self.answer.status
+        return {WAIT: "waiting", SUPPRESS: "suppressed"}.get(self.resolution.kind, "abstained")
 
     @property
     def text(self) -> str:
-        return self.answer.text if self.answer else UNRESOLVED_TEXT
+        if self.answer:
+            return self.answer.text
+        return {WAIT: WAITING_TEXT, SUPPRESS: ""}.get(self.resolution.kind, UNRESOLVED_TEXT)
+
+    @property
+    def abstention_reason(self) -> str | None:
+        """Why there is no answer: the answer's own reason, "unresolved_reference", or None (nothing was asked)."""
+        if self.answer:
+            return self.answer.abstention_reason
+        return None if self.resolution.kind in (WAIT, SUPPRESS) else "unresolved_reference"
 
     @property
     def citations(self) -> list:
@@ -67,7 +84,7 @@ class Turn:
 
     def render(self) -> str:
         if self.answer is None:
-            return f"{UNRESOLVED_TEXT}\n({self.resolution.reason})"
+            return f"{self.text}\n({self.resolution.reason})"
         return self.answer.render()
 
 
@@ -78,6 +95,12 @@ class Session:
     @property
     def last(self) -> Turn | None:
         return self.turns[-1] if self.turns else None
+
+    @property
+    def context(self) -> Turn | None:
+        """The last turn that was a question (self-contained, follow-up or unresolved): what a new question is
+        resolved against. A waiting, suppressed or presentation turn does not change the topic."""
+        return next((t for t in reversed(self.turns) if t.resolution.kind not in NOT_A_QUESTION), None)
 
     def to_dict(self) -> dict:
         return {"turns": [t.to_dict() for t in self.turns]}

@@ -25,6 +25,7 @@ from pydantic import ValidationError
 from adaptive.jobs.contracts import JobRequest
 from adaptive.jobs.worker import Worker
 from adaptive.session.controller import SessionController
+from adaptive.session.state import PRESENTATION, REFINEMENT
 from generation.pipeline import RetrievalStack
 
 from .. import correlation, telemetry
@@ -47,6 +48,33 @@ class OrchestratorWorker(Worker):
             with telemetry.span("orchestrator.execute", telemetry.ORCHESTRATOR) as span:
                 super().handle(body)
                 self._outcome(span, req.job_id)
+                self._lineage(span, req)
+
+    def _lineage(self, span, req: JobRequest) -> None:
+        """The turn's decision and the lineage of its answer on the job's span, read from the stored turn: whether
+        retrieval was required and why (decision), the turn it was resolved against, refined or re-presented
+        (anchor), how the answer was produced (strategy) and which version of the answer it is (1 for a question's
+        first answer, +1 for each refinement of it; a presentation has the version of the answer it lays out).
+        Scalars and codes only. Read only, and never fails the job."""
+        try:
+            final = self.finished.get(req.job_id)
+            if final is None or final.result is None:
+                return
+            session = self.sessions.get(req.session_id)
+            turn = session.turns[final.result.turn_index]
+            r = turn.resolution
+            span.set({"orchestrator.decision": r.signals.get("decision"),
+                      "orchestrator.retrieval_required": r.signals.get("retrieval_required"),
+                      "session.anchor_turn_index": r.anchor})
+            if turn.answer is not None:
+                version, t = 1, turn
+                while t.resolution.kind in (REFINEMENT, PRESENTATION) and t.resolution.anchor is not None:
+                    version += t.resolution.kind == REFINEMENT
+                    t = session.turns[t.resolution.anchor]
+                span.set({"orchestrator.strategy": turn.answer.strategy, "orchestrator.claim_count": len(turn.answer.claims),
+                          "orchestrator.answer_version": version})
+        except Exception:
+            log.debug("orchestrator lineage attributes failed; the job is not affected", exc_info=True)
 
     def _outcome(self, span, job_id: str) -> None:
         """The job's final event on its span (phase 10A). The phase 4 worker reports a failed pipeline as an event,

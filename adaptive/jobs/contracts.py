@@ -81,19 +81,18 @@ class JobRequest(_Message):
 
 class JobResult(_Message):
     turn_index: int
-    resolution: str  # self_contained | follow_up | unresolved
+    resolution: str  # self_contained | follow_up | unresolved | wait | suppress | presentation
     resolution_reason: str
-    answer_status: str  # answered | abstained
+    answer_status: str  # answered | abstained | waiting | suppressed
     text: str
     citations: list[dict]  # generation.answer.Citation fields
     abstention_reason: str | None = None
 
     @classmethod
     def from_turn(cls, turn) -> "JobResult":
-        a = turn.answer
         return cls(turn_index=turn.index, resolution=turn.resolution.kind, resolution_reason=turn.resolution.reason,
                    answer_status=turn.status, text=turn.text, citations=[asdict(c) for c in turn.citations],
-                   abstention_reason=a.abstention_reason if a else "unresolved_reference")
+                   abstention_reason=turn.abstention_reason)
 
 
 class JobEvent(_Message):

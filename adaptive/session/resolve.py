@@ -12,6 +12,15 @@
                      Does that apply currently?"
                   Phase 2 treats a non-question sentence before the question as context shared by every intent,
                   so its decomposition, retrieval, temporal resolution and verification run unchanged on it.
+  refinement      a late constraint on the question before it: not a question, but a correction ("Actually, the
+                  trip was international."), a statement about what was asked ("This was for international
+                  travel.") or an instruction ("Use the July 2026 version instead."), about the same organization,
+                  that adds at least one new content word (the delta). The question stays the one that was asked,
+                  with the constraints as its context: "(Earlier in this conversation: the trip was
+                  international). What are the travel reimbursement rules for an employee trip?". What is retrieved
+                  is the delta with the topic it applies to (signals.retrieval_query: "international travel
+                  reimbursement rules for an employee trip"), and the earlier answer is refined, not redone
+                  (adaptive.session.refine). The rules that make a follow-up unresolved apply to it as well.
   unresolved      the reference cannot be resolved safely: no retrieval, no model call, an explicit abstention
                   * the previous turn asked several questions (which one does "that" mean?)
                   * the topic names several organizations
@@ -34,7 +43,7 @@ import re
 from adaptive.multi.decompose import mentions, outside_corpus
 from temporal.intent import MONTHS, parse_query
 
-from .state import FOLLOW_UP, SELF_CONTAINED, UNRESOLVED, Resolution, Turn
+from .state import FOLLOW_UP, REFINEMENT, SELF_CONTAINED, UNRESOLVED, Resolution, Turn
 
 _AUX = r"(?:does|do|did|is|are|was|were|would|will|can|could|should|must|has|have)"
 # a question opening on a reference to what came before: "Does that apply ...?", "And is it ...?"
@@ -51,6 +60,26 @@ _NOT_A_NAME = {"What", "Who", "How", "Where", "When", "Why", "Which", "That", "T
                "A", "An", "I"}
 # a date is removed together with the word that introduces it ("effective July 1, 2026"); "current" alone
 _LEAD = r"(?:\b(?:effective|as of|dated|on|in|from|since|under|for)\s+(?:the\s+)?)?"
+# ---- a late constraint (see late_constraint)
+ASKED = (SELF_CONTAINED, FOLLOW_UP, REFINEMENT)  # turns that asked the corpus something: what can be refined
+_INTERROGATIVE = re.compile(rf"^\s*(?:(?:and|but|so)\s+)?(?:what|which|who|whom|whose|when|where|why|how|{_AUX})\b", re.I)
+# words that announce a correction; they are not part of the constraint
+_CORRECTION = re.compile(r"^\s*(?:actually|sorry|correction|to clarify|to be clear|to be specific|more precisely|"
+                         r"in fact|rather|oh|no|i meant|i mean|i should have said|i should add|make that|note that)"
+                         r"\b[\s,:;.\-–—]*", re.I)
+# a statement about what was asked: "The trip was international", "This is for domestic travel", "It was in 2026"
+_STATEMENT = re.compile(r"^(?:the|this|that|it|they|he|she|we|i|my|our|these|those)\b[^.?!]*?\b(?:was|is|were|are|am|"
+                        r"will be|has been|had|has|have)\b", re.I)
+# an instruction on how to read the question: "Use the July 2026 version", "For international travel"
+_INSTRUCTION = re.compile(r"^(?:use|apply|assume|consider|for|under|as of)\b", re.I)
+_INSTEAD = re.compile(r"[\s,]+(?:instead|only|please)\b\.?\s*$", re.I)
+_ASKS_FOR = re.compile(r"^(?:(?:what|which)\s+(?:is|are|was|were)|what\s+about|how\s+about)\s+(?:the\s+)?", re.I)
+_TOKEN = re.compile(r"[A-Za-z0-9][\w'’-]*")
+_FUNCTION_WORDS = set(
+    "a an the this that these those it its they them their he she his her we our i my me you your of for to in on at "
+    "by with from as about into under over and or but nor so if then than is are was were am be been being has have "
+    "had do does did will would can could should may might must only just also use using used apply assume "
+    "consider take make made mean meant actually sorry instead please version one".split())
 
 
 def references(question: str) -> list[str]:
@@ -91,6 +120,45 @@ def compose(question: str, topic: list[str], temporal: str = "") -> str:
     return f"(Earlier in this conversation: {earlier}{note}). {q[:1].upper()}{q[1:]}"
 
 
+def late_constraint(utterance: str) -> str | None:
+    """The constraint an utterance adds to the question before it, or None: it must not be a question (no question
+    mark, no interrogative opening) and must be a correction ("Actually, ...", "I meant ..."), a statement about
+    what was asked ("The trip was international.", "This was for international travel."), or an instruction on
+    how to read it ("Use the July 2026 version instead.", "For domestic travel only."). Returned without the words
+    that only announce it ("Actually,", "I meant", "instead")."""
+    text = " ".join(utterance.split())
+    if "?" in text or _INTERROGATIVE.match(text):
+        return None
+    body, marked = text, False
+    while True:  # "Sorry, actually, I meant ..."
+        m = _CORRECTION.match(body)
+        if not m:
+            break
+        body, marked = body[m.end():], True
+    if not (marked or _STATEMENT.match(body) or _INSTRUCTION.match(body) or _INSTEAD.search(body)):
+        return None
+    body = _INSTEAD.sub("", body).strip(" .,;:!")
+    return body or None
+
+
+def new_words(constraint: str, earlier: list[str]) -> str:
+    """The delta: the words of the constraint that the earlier questions and constraints do not already contain and
+    that carry content, in the constraint's order ("the trip was international" after a question about an employee
+    trip -> "international"). Empty when it adds nothing."""
+    known = {w.lower() for text in earlier for w in _TOKEN.findall(text)}
+    words = [w for w in _TOKEN.findall(constraint) if w.lower() not in known and w.lower() not in _FUNCTION_WORDS]
+    return " ".join(words)
+
+
+def topic_phrase(question: str) -> str:
+    """What a question is about, for retrieval: the question without its question mark and, for "What is / are /
+    about ...", without those words ("What are the travel reimbursement rules for an employee trip?" -> "travel
+    reimbursement rules for an employee trip"). Any other question is its own phrase."""
+    body = question.strip().rstrip("?").strip()
+    m = _ASKS_FOR.match(body)
+    return (body[m.end():] if m else body).strip()
+
+
 def resolve(question: str, last: Turn | None, organizations: set[str], aliases: dict[str, str]) -> Resolution:
     q = " ".join(question.split())
     own = parse_query(q)
@@ -104,11 +172,22 @@ def resolve(question: str, last: Turn | None, organizations: set[str], aliases: 
     signals = {"references": refs, "organizations_named": named, "outside_corpus": outside, "unknown_names": unknown,
                "own_temporal": own.kind}
 
-    if last is None or (names and not refs):
+    # a late constraint on the question before it (not a question itself, and about the same organization, or
+    # naming the first one of a topic that had none): that answer is refined (SessionController), not redone
+    constraint = late_constraint(q) if last is not None and last.resolution.kind in ASKED else None
+    refines = bool(constraint) and (not names or not last.resolution.organizations
+                                    or set(names) <= set(last.resolution.organizations))
+    # the delta: the version the constraint names, and its words that are new to the conversation
+    delta = " ".join(x for x in (own_temporal, new_words(strip_temporal(constraint),
+                                                         last.resolution.topic + [last.question])) if x) if refines else ""
+    refines = refines and bool(delta)
+
+    if last is None or (names and not refs and not refines):
         reason = "first turn of the session" if last is None else "names its own organization and does not refer back"
         return Resolution(SELF_CONTAINED, reason, question, [question], own_temporal, names, None, signals)
 
-    why = f"refers back ({', '.join(refs)})" if refs else "names no organization"
+    why = (f"adds a constraint to the earlier question ({delta})" if refines
+           else f"refers back ({', '.join(refs)})" if refs else "names no organization")
 
     def unresolved(reason: str) -> Resolution:
         return Resolution(UNRESOLVED, f"{why}, but {reason}", "", [], "", names, last.index, signals)
@@ -120,10 +199,31 @@ def resolve(question: str, last: Turn | None, organizations: set[str], aliases: 
     topic_orgs = last.resolution.organizations
     if len(topic_orgs) > 1:
         return unresolved(f"the topic names several organizations ({', '.join(topic_orgs)})")
-    if names and not set(names) <= set(topic_orgs):
+    if names and not set(names) <= set(topic_orgs) and not (refines and not topic_orgs):
         return unresolved(f"it names {', '.join(names)} while the topic is about "
                           f"{', '.join(topic_orgs) or 'no named organization'}")
-    topic = ([last.resolution.topic[0]] if last.resolution.kind == FOLLOW_UP else []) + [last.question]
     inherited = last.resolution.temporal
+    if last.resolution.kind == REFINEMENT:  # its topic: the questions it refined, then the constraints so far
+        asked = last.resolution.signals["questions"]
+        questions, constraints = last.resolution.topic[:asked], last.resolution.topic[asked:]
+        deltas = last.resolution.signals["deltas"]
+    else:
+        questions = ([last.resolution.topic[0]] if last.resolution.kind == FOLLOW_UP else []) + [last.question]
+        constraints, deltas = [], []
+    if refines:
+        # the question stays the one that was asked; the constraints are its context (as earlier questions are a
+        # follow-up's). What is retrieved is the delta: the new words, then the topic they apply to.
+        # The version in effect is stated once, as for a follow-up: the constraint's own, else the inherited one.
+        topic = questions + constraints + [constraint]
+        temporal = own_temporal or inherited
+        query = compose(strip_temporal(questions[-1]), questions[:-1] + constraints + [constraint], temporal)
+        phrases = [topic_phrase(strip_temporal(x)) for x in questions]
+        earlier_deltas = [strip_temporal(x) for x in deltas] if own_temporal else deltas
+        retrieval_query = " ".join(x for x in [delta, *earlier_deltas, *phrases, "" if own_temporal else inherited] if x)
+        signals |= {"constraint": constraint, "delta": delta, "deltas": [delta, *deltas], "questions": len(questions),
+                    "retrieval_query": retrieval_query}
+        return Resolution(REFINEMENT, why, query, topic, own_temporal or inherited,
+                          list(dict.fromkeys(topic_orgs + names)), last.index, signals)
+    topic = questions + constraints
     query = compose(q, topic, "" if own_temporal else inherited)
     return Resolution(FOLLOW_UP, why, query, topic, own_temporal or inherited, topic_orgs, last.index, signals)

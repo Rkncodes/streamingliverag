@@ -311,7 +311,7 @@
   "category": "multi_chunk",
   "passed": false,
   "failures": [
-   "status abstained (expected answered; reason provider_error: RateLimitError: Error code: 429 - {'error': {'message': 'Rate limit reached for model `openai/gpt-oss-20b` in organization `org_01knsvdyyffwbsgj2w7yjrh79r` serv)"
+   "status abstained (expected answered; reason provider_error: RateLimitError: Error code: 429 - {'error': {'message': 'Rate limit reached for model `openai/gpt-oss-20b` in organization `<redacted>` serv)"
   ],
   "seconds": 13.31,
   "answer": {
@@ -321,7 +321,7 @@
    "citations": [],
    "claims": [],
    "abstention_reason": "provider_error",
-   "abstention_detail": "RateLimitError: Error code: 429 - {'error': {'message': 'Rate limit reached for model `openai/gpt-oss-20b` in organization `org_01knsvdyyffwbsgj2w7yjrh79r` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 6224, Requested 1824. Please try again in 360ms. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}",
+   "abstention_detail": "RateLimitError: Error code: 429 - {'error': {'message': 'Rate limit reached for model `openai/gpt-oss-20b` in organization `<redacted>` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 6224, Requested 1824. Please try again in 360ms. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing', 'type': 'tokens', 'code': 'rate_limit_exceeded'}}",
    "sources_considered": [
     {
      "label": "S1",

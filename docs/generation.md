@@ -110,7 +110,15 @@ The model's output is accepted only if **all** of these hold (`generation/valida
   numbers, so the number rule alone would accept "March 1, 2026" when the digits 1 and 2026 are in the metadata;
 * `not_in_sources` entries contain no numbers except those in the question or in source metadata: they
   describe a gap, never a sourced fact. They are shown after the claims as "The retrieved sources do not
-  state: …".
+  state: …";
+* named entities (`validate.ENTITY_GROUPS`: things of one kind that must not be taken for one another, each with
+  its aliases): the group `card` holds the **Travel Card** (Travel Card, University Travel Card, University-Issued
+  Travel Card, employee travel card, TCard, T-Card) and the **PCard** (PCard, P-Card, Purchasing Card, Procurement
+  Card). A claim that names an entity is rejected when its evidence is about another entity of the same group and
+  not about that one: its supporting quotes name the other and none names the claimed one; or its quotes name
+  neither, and the sources they were found in (text and displayed metadata) name the other and not the claimed
+  one. Evidence that names both supports the entity it names where the claim is supported; evidence that names no
+  entity of the group ("the card") is not judged by this rule. Aliases are matched on normalized text.
 
 If any check fails, **nothing the model wrote is shown**: the result is the fixed abstention, with the raw
 output and the list of problems kept for inspection.
@@ -145,6 +153,13 @@ Travel Card charges must be submitted within 30 days ...[1]
 * **Evaluation model:** Groq `openai/gpt-oss-20b` (131K context, 65K max output), called through the official
   `groq` SDK with strict JSON-schema output. Credentials come only from `GROQ_API_KEY`.
 * **Settings:** temperature 0, seed 1234, `reasoning_effort` "medium", `max_completion_tokens` 4096.
+* **Completion budget:** the model's reasoning and its answer share `max_completion_tokens`. When the budget runs out
+  before the structured output is complete (Groq: HTTP 400 `json_validate_failed`, "max completion tokens reached
+  before generating a valid document", or `finish_reason` "length"), the same request is sent once more with
+  `RETRY_MAX_COMPLETION_TOKENS` = 16384. An unfinished output is never used: a complete document from the second
+  attempt is verified like any other; otherwise the call fails with `ProviderError` and the answer is an abstention
+  with reason `provider_error`. No other provider error is retried here. `ProviderResponse.settings` records the
+  budget of the attempt that returned.
 * **Provider-neutral:** `LLMProvider.complete(system, user, schema) -> ProviderResponse`. Replacing Groq means
   adding one adapter class; context assembly, prompt, verification, citations and abstention do not change.
 
