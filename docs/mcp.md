@@ -18,7 +18,7 @@ services.mcp.server  ── tools/list, tools/call (schemas = services/mcp/contr
   └─ database_query  ──► DatabaseAdapter: NotConfigured, or PostgreSQL with DATABASE_URL (phase 9, docs/database.md)
 ```
 
-Not implemented: React, MCP resources and prompts, authentication. OpenTelemetry tracing: phase 10A, see Tracing
+Not implemented: MCP resources and prompts, authentication. (The React frontend is phase 10B, `frontend/`.) OpenTelemetry tracing: phase 10A, see Tracing
 below and [telemetry.md](telemetry.md).
 
 ## Tools
