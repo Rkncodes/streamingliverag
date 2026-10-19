@@ -5,7 +5,7 @@ observation only: no span changes what a service returns, and a tracing failure 
 Nothing else changes. Retrieval, generation, the adaptive decisions, sessions, jobs, the MCP tool results and the
 PostgreSQL queries are exactly as before (tested). Phase 10A is tracing only: no metrics, no log export.
 
-Not implemented: a React frontend, durable job state.
+Not implemented: durable job state. (The React frontend was added in phase 10B, `frontend/`.)
 
 ## What is traced
 
